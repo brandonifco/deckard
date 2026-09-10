@@ -14,9 +14,17 @@ Deckard.Data   structured rule values            depends on Core
 Deckard.Rules  Shadowrun Sixth World mechanics   depends on Core + Data
 ```
 
-Nothing points upward. This is enforced twice: `tools/repo-checks.py --only layering`
-reads the declared `ProjectReference` graph, and each test project asserts at runtime
-that its compiled assembly references nothing above its layer.
+Nothing points upward.
+
+`tools/repo-checks.py --only layering` enforces this today, by reading the declared
+`ProjectReference` graph in the `.csproj` files. That check is exact and catches a
+violation the moment it is written.
+
+The per-assembly runtime tests are a second net that is **not yet load-bearing**: the C#
+compiler omits assembly references a compilation does not actually use, so while no
+Deckard assembly consumes another, `GetReferencedAssemblies()` returns nothing and those
+assertions pass vacuously. They begin catching real violations as soon as Phase 1 code
+crosses an assembly boundary. Until then, the declared-graph check is the enforcement.
 
 ### Core
 

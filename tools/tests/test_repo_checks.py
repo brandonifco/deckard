@@ -316,6 +316,55 @@ class ActionPinTests(CheckTestCase):
         self.assertEqual(repo_checks.check_action_pins(self.repo.root), [])
 
 
+class ReadOnlyAgentTests(CheckTestCase):
+    def _agent(self, name: str, tools: str | None, body: str) -> None:
+        front = f"---\nname: {name}\ndescription: x\n"
+        if tools is not None:
+            front += f"tools: {tools}\n"
+        front += "---\n"
+        self.repo.write(f".claude/agents/{name}.md", front + body)
+
+    def test_readonly_agent_without_write_tools_passes(self):
+        self._agent("reviewer", "Read, Grep, Glob", "You are read-only.\n")
+        self.assertEqual(repo_checks.check_readonly_agents(self.repo.root), [])
+
+    def test_readonly_agent_granted_bash_is_caught(self):
+        """Bash is a write tool: sed -i, cat >, git commit are each one command away."""
+        self._agent("reviewer", "Read, Grep, Glob, Bash", "You are read-only.\n")
+        self.assertCaught(repo_checks.check_readonly_agents(self.repo.root), "read-only")
+
+    def test_readonly_agent_granted_edit_is_caught(self):
+        self._agent("reviewer", "Read, Edit", "This agent is read only.\n")
+        self.assertCaught(repo_checks.check_readonly_agents(self.repo.root), "read-only")
+
+    def test_implementation_agent_may_hold_write_tools(self):
+        self._agent("engine-dev", None, "You implement one Issue and may edit.\n")
+        self.assertEqual(repo_checks.check_readonly_agents(self.repo.root), [])
+
+    def test_agent_not_claiming_readonly_is_unaffected(self):
+        self._agent("helper", "Read, Bash", "You run commands.\n")
+        self.assertEqual(repo_checks.check_readonly_agents(self.repo.root), [])
+
+
+class PhaseAuthorityTests(CheckTestCase):
+    def test_phase_stated_only_in_claude_md_passes(self):
+        self.repo.write("README.md", "Current phase is recorded in CLAUDE.md.\n")
+        self.assertEqual(repo_checks.check_phase_authority(self.repo.root), [])
+
+    def test_phase_restated_in_readme_is_caught(self):
+        self.repo.write("README.md", "**Phase 0 - foundation.** Complete.\n")
+        self.assertCaught(repo_checks.check_phase_authority(self.repo.root), "current phase")
+
+    def test_phase_restated_in_roadmap_is_caught(self):
+        self.repo.write("docs/roadmap.md", "**Phase 1 - kernel.** Next.\n")
+        self.assertCaught(repo_checks.check_phase_authority(self.repo.root), "current phase")
+
+    def test_roadmap_phase_table_is_not_a_phase_claim(self):
+        """The roadmap lists every phase; that is its job. Only 'this is where we are' counts."""
+        self.repo.write("docs/roadmap.md", "| 1 | Deterministic randomness | vectors pinned |\n")
+        self.assertEqual(repo_checks.check_phase_authority(self.repo.root), [])
+
+
 class RealRepositoryTests(unittest.TestCase):
     """The repository itself must satisfy every check it ships."""
 

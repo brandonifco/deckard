@@ -14,6 +14,7 @@ Checks:
   source-boundary  no rulebook, no source packet, no local source path committed
   action-pins    third-party GitHub Actions pinned to immutable commit SHAs
   readonly-agents  agents claiming to be read-only carry no write-capable tool
+  phase-authority  current phase is stated in CLAUDE.md and nowhere else
   single-queue   no competing task backlog outside GitHub Issues
 """
 from __future__ import annotations
@@ -320,6 +321,32 @@ def check_readonly_agents(root: Path) -> list[Failure]:
     return failures
 
 
+PHASE_CLAIM = re.compile(r"^.*\*\*Phase \d+[^*]*\*\*.*(complete|next|current)", re.IGNORECASE)
+PHASE_AUTHORITY = "CLAUDE.md"
+
+
+def check_phase_authority(root: Path) -> list[Failure]:
+    """Current phase is stated in exactly one file.
+
+    It was previously asserted in CLAUDE.md, README.md and docs/roadmap.md -- a fact that
+    changes every phase, in three places, with nothing keeping them in step.
+    """
+    failures: list[Failure] = []
+    for name in ("README.md", "docs/roadmap.md", "docs/scope.md", "AGENTS.md"):
+        path = root / name
+        if not path.is_file():
+            continue
+        for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if PHASE_CLAIM.match(line):
+                failures.append(
+                    Failure(
+                        f"{name}:{lineno}: states the current phase, which is authoritative "
+                        f"in {PHASE_AUTHORITY} only [{line.strip()[:50]}]"
+                    )
+                )
+    return failures
+
+
 def check_single_queue(root: Path) -> list[Failure]:
     """GitHub Issues are the only live work queue (CLAUDE.md, governing principle 1).
 
@@ -351,6 +378,7 @@ CHECKS = {
     "source-boundary": check_source_boundary,
     "action-pins": check_action_pins,
     "readonly-agents": check_readonly_agents,
+    "phase-authority": check_phase_authority,
     "single-queue": check_single_queue,
 }
 
