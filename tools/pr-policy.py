@@ -44,7 +44,15 @@ RULES_PATHS = (
 # provenance, and never will. They are still fully subject to build-and-test; what they
 # are exempt from is the narrative that exists to make human and agent work reviewable.
 # Deliberately an exact allowlist rather than a "looks like a bot" heuristic.
-BOT_AUTHORS = frozenset({"dependabot[bot]"})
+# Both spellings are required. GitHub's REST API reports a bot as "dependabot[bot]";
+# `gh pr view --json author` goes through GraphQL and reports "app/dependabot". This tool
+# reads the GraphQL form, but the REST form is what appears in webhooks and in most
+# documentation, so a future caller will reach for it. Neither is a heuristic -- both are
+# exact strings for the same single allowlisted bot.
+#
+# Deliberately NOT keyed on the author's `is_bot` flag: that would exempt every bot with
+# access to the repository, which is a much wider door than this needs.
+BOT_AUTHORS = frozenset({"dependabot[bot]", "app/dependabot"})
 
 CLOSES = re.compile(r"\b(?:closes|fixes|resolves)\s+#(\d+)\b", re.IGNORECASE)
 HTML_COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
