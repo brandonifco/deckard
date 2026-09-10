@@ -40,6 +40,12 @@ RULES_PATHS = (
     ".github/source-manifest.json",
 )
 
+# Machine-generated dependency PRs have no Issue, no behavioural claim and no agent
+# provenance, and never will. They are still fully subject to build-and-test; what they
+# are exempt from is the narrative that exists to make human and agent work reviewable.
+# Deliberately an exact allowlist rather than a "looks like a bot" heuristic.
+BOT_AUTHORS = frozenset({"dependabot[bot]"})
+
 CLOSES = re.compile(r"\b(?:closes|fixes|resolves)\s+#(\d+)\b", re.IGNORECASE)
 HTML_COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
 FENCE = re.compile(r"```.*?```", re.DOTALL)
@@ -110,8 +116,16 @@ def is_na(text: str) -> bool:
     return bool(re.match(r"^\W*n/?a\b", first_line, re.IGNORECASE))
 
 
-def check(body: str, changed_files: list[str], issue_labels) -> list[str]:
+def is_exempt(author: str | None) -> bool:
+    """True for allowlisted bots. Narrow on purpose -- a broad bypass hollows out the policy."""
+    return author is not None and author in BOT_AUTHORS
+
+
+def check(body: str, changed_files: list[str], issue_labels, author: str | None = None) -> list[str]:
     """Return a list of policy failures. Empty means the PR passes."""
+    if is_exempt(author):
+        return []
+
     failures: list[str] = []
     sections = split_sections(body)
 
@@ -202,22 +216,25 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--no-verify-issue", action="store_true", help="skip the GitHub Issue lookup"
     )
+    parser.add_argument("--author", help="PR author login, when not reading from gh")
     parser.add_argument("--json", help="write a machine-readable evidence artifact here")
     args = parser.parse_args(argv)
 
     if args.pr:
-        data = gh_json(["pr", "view", args.pr, "--json", "body,files"])
+        data = gh_json(["pr", "view", args.pr, "--json", "body,files,author"])
         if data is None:
             print(f"pr-policy: cannot read PR #{args.pr}", file=sys.stderr)
             return 2
         body = data.get("body") or ""
         changed = [f["path"] for f in data.get("files", [])]
+        author = (data.get("author") or {}).get("login")
     elif args.body_file:
         body = Path(args.body_file).read_text(encoding="utf-8")
         changed = (
             [l.strip() for l in Path(args.changed_files).read_text(encoding="utf-8").splitlines() if l.strip()]
             if args.changed_files else []
         )
+        author = args.author
     else:
         parser.error("one of --pr or --body-file is required")
 
@@ -231,13 +248,16 @@ def main(argv: list[str] | None = None) -> int:
                 return None
             return [label["name"] for label in data.get("labels", [])]
 
-    failures = check(body, changed, issue_labels)
+    exempt = is_exempt(author)
+    failures = check(body, changed, issue_labels, author)
 
     if args.json:
         Path(args.json).write_text(
             json.dumps(
                 {
                     "pr": args.pr,
+                    "author": author,
+                    "exempt": exempt,
                     "passed": not failures,
                     "failureCount": len(failures),
                     "failures": failures,
@@ -256,7 +276,11 @@ def main(argv: list[str] | None = None) -> int:
         print("\nSee .github/pull_request_template.md")
         return 1
 
-    print("pr-policy: PASS")
+    if exempt:
+        print(f"pr-policy: PASS (author '{author}' is an allowlisted bot; "
+              "narrative requirements waived, build-and-test still applies)")
+    else:
+        print("pr-policy: PASS")
     return 0
 
 
