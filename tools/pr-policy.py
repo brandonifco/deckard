@@ -55,6 +55,13 @@ RULES_PATHS = (
 BOT_AUTHORS = frozenset({"dependabot[bot]", "app/dependabot"})
 
 CLOSES = re.compile(r"\b(?:closes|fixes|resolves)\s+#(\d+)\b", re.IGNORECASE)
+
+# A source locator names a page. "Matches the book" is the exact phrasing the PR template
+# and the open-pr skill call unacceptable, and it previously passed policy unchallenged.
+LOCATOR = re.compile(r"\bp(?:rinted)?\.?\s*pp?\.?\s*\d+|\bpp?\.\s*\d+", re.IGNORECASE)
+
+SOURCE_MANIFEST = ".github/source-manifest.json"
+ADR_DIR = "docs/decisions/"
 HTML_COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
 FENCE = re.compile(r"```.*?```", re.DOTALL)
 
@@ -199,6 +206,23 @@ def check(body: str, changed_files: list[str], issue_labels, author: str | None 
             failures.append(
                 f'"Rules conformance" says N/A but {len(rules_files)} rules file(s) changed '
                 f"({rules_files[0]}...). Rules changes require a source locator."
+            )
+        elif not LOCATOR.search(conformance):
+            failures.append(
+                '"Rules conformance" names no page. Cite the location, e.g. '
+                '"SR6 Core / Tests / printed pp. 35-36 / PDF pp. 36-37". '
+                '"Matches the book" is a claim, not a locator.'
+            )
+
+    # Changing the pinned source baseline is a deliberate decision, not an edit. Four
+    # documents said so; nothing enforced it, though the changed-file list was already
+    # here and the manifest was already flagged as rules work.
+    if SOURCE_MANIFEST in changed_files:
+        if not any(f.startswith(ADR_DIR) for f in changed_files):
+            failures.append(
+                f"{SOURCE_MANIFEST} changed but no ADR under {ADR_DIR} accompanies it. "
+                "Changing the pinned source baseline requires its own Issue, PR and ADR "
+                "-- see docs/decisions/0003-source-baseline.md."
             )
 
     return failures

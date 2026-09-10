@@ -230,9 +230,15 @@ class BotExemptionTests(unittest.TestCase):
                 f"{impostor!r} must not be exempt",
             )
 
-    def test_exemption_does_not_apply_to_rules_files(self):
-        """Even exempt, a bot touching rules files is unusual -- but the exemption is
-        about narrative sections, and build-and-test still gates correctness."""
+    def test_exemption_still_applies_when_a_bot_touches_rules_files(self):
+        """The name previously said the opposite of the assertion.
+
+        The behaviour is deliberate: the exemption waives the NARRATIVE sections, and a
+        bot cannot write a rules-conformance section whatever it touches. Correctness is
+        still gated by build-and-test. A dependency bot reaching into src/Deckard.Rules/
+        would be anomalous, but failing policy is the wrong lever -- the bot cannot fix
+        it, so the PR would simply be stuck. Recorded here rather than left implicit.
+        """
         self.assertEqual(
             pr_policy.check(self.EMPTY, ["src/Deckard.Rules/X.cs"], no_labels,
                             author="dependabot[bot]"),
@@ -243,6 +249,76 @@ class BotExemptionTests(unittest.TestCase):
         self.assertTrue(pr_policy.is_exempt("dependabot[bot]"))
         self.assertFalse(pr_policy.is_exempt("brandonifco"))
         self.assertFalse(pr_policy.is_exempt(None))
+
+
+class LocatorShapeTests(unittest.TestCase):
+    """A conformance section must name a page, not assert agreement with the book."""
+
+    RULES_FILE = ["src/Deckard.Rules/DiceTest.cs"]
+
+    def _conformance(self, text: str) -> str:
+        return GOOD.replace(
+            "N/A -- no Shadowrun mechanic is touched; this is the PRNG substrate below "
+            "the dice layer.",
+            text,
+        )
+
+    def test_matches_the_book_is_refused(self):
+        failures = pr_policy.check(self._conformance("Matches the book."),
+                                   self.RULES_FILE, no_labels)
+        self.assertIn("names no page", " ".join(failures))
+
+    def test_verified_against_the_source_is_refused(self):
+        failures = pr_policy.check(self._conformance("Verified against the source packet."),
+                                   self.RULES_FILE, no_labels)
+        self.assertIn("names no page", " ".join(failures))
+
+    def test_a_full_locator_passes(self):
+        body = self._conformance(
+            "SR6 Core / Tests / printed pp. 35-36 / PDF pp. 36-37. Verified all 6 rows."
+        )
+        self.assertEqual(pr_policy.check(body, self.RULES_FILE, no_labels), [])
+
+    def test_a_singular_page_locator_passes(self):
+        body = self._conformance("SR6 Core / Glitches / printed p. 44 / PDF p. 45.")
+        self.assertEqual(pr_policy.check(body, self.RULES_FILE, no_labels), [])
+
+    def test_locator_is_not_required_for_non_rules_work(self):
+        self.assertEqual(pr_policy.check(GOOD, ["docs/roadmap.md"], no_labels), [])
+
+
+class SourceBaselineTests(unittest.TestCase):
+    """Changing the pinned baseline requires an ADR. Four documents said so; now it holds."""
+
+    def _conformance(self, text: str) -> str:
+        return GOOD.replace(
+            "N/A -- no Shadowrun mechanic is touched; this is the PRNG substrate below "
+            "the dice layer.",
+            text,
+        )
+
+    LOCATOR = "SR6 Core / Tests / printed pp. 35-36 / PDF pp. 36-37."
+
+    def test_manifest_change_without_an_adr_is_refused(self):
+        failures = pr_policy.check(self._conformance(self.LOCATOR),
+                                   [".github/source-manifest.json"], no_labels)
+        self.assertIn("no ADR", " ".join(failures))
+
+    def test_manifest_change_with_an_adr_passes(self):
+        body = self._conformance(self.LOCATOR)
+        self.assertEqual(
+            pr_policy.check(
+                body,
+                [".github/source-manifest.json", "docs/decisions/0005-new-printing.md"],
+                no_labels,
+            ),
+            [],
+        )
+
+    def test_an_adr_alone_needs_no_manifest_change(self):
+        self.assertEqual(
+            pr_policy.check(GOOD, ["docs/decisions/0005-thing.md"], no_labels), []
+        )
 
 
 class RulesConformanceTests(unittest.TestCase):
