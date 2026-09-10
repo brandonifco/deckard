@@ -19,6 +19,23 @@ cd "$REPO_ROOT"
 
 WORKTREE_ROOT="${DECKARD_WORKTREE_ROOT:-$HOME/deckard-worktrees}"
 
+# A worktree inside the repository eventually gets committed, scanned by a tool that did
+# not expect it, or deleted by a clean step. The rule was previously prose only, and
+# DECKARD_WORKTREE_ROOT could point anywhere.
+assert_worktree_root_is_outside_repo() {
+  local resolved
+  resolved="$(mkdir -p "$WORKTREE_ROOT" 2>/dev/null; cd "$WORKTREE_ROOT" 2>/dev/null && pwd -P)" || {
+    printf 'error: cannot create worktree root: %s\n' "$WORKTREE_ROOT" >&2; exit 1; }
+  case "$resolved/" in
+    "$REPO_ROOT"/*)
+      printf 'error: DECKARD_WORKTREE_ROOT resolves inside the repository:\n' >&2
+      printf '         %s\n       repo: %s\n\n' "$resolved" "$REPO_ROOT" >&2
+      printf '       Worktrees must live outside the repo. Pick a path elsewhere.\n' >&2
+      exit 1
+      ;;
+  esac
+}
+
 if [[ -t 1 ]]; then BOLD=$'\033[1m'; RED=$'\033[31m'; GRN=$'\033[32m'; OFF=$'\033[0m'
 else BOLD=""; RED=""; GRN=""; OFF=""; fi
 
@@ -86,6 +103,7 @@ do_cleanup() {
 do_create() {
   local issue="$1"
 
+  assert_worktree_root_is_outside_repo
   command -v gh >/dev/null 2>&1 || die "gh is required to verify the Issue exists"
 
   local title state labels

@@ -13,6 +13,7 @@ Checks:
   layering       declared ProjectReference graph matches docs/architecture.md
   source-boundary  no rulebook, no source packet, no local source path committed
   action-pins    third-party GitHub Actions pinned to immutable commit SHAs
+  readonly-agents  agents claiming to be read-only carry no write-capable tool
   single-queue   no competing task backlog outside GitHub Issues
 """
 from __future__ import annotations
@@ -276,6 +277,49 @@ def check_action_pins(root: Path) -> list[Failure]:
     return failures
 
 
+# Tools through which an agent can modify the repository. `Bash` counts: `sed -i`,
+# `cat >`, `git commit` and `git push` are all one command away.
+WRITE_CAPABLE_TOOLS = {"Bash", "Edit", "Write", "NotebookEdit"}
+READ_ONLY_MARKERS = ("read-only", "read only")
+
+
+def check_readonly_agents(root: Path) -> list[Failure]:
+    """An agent charter that calls itself read-only must not carry a write-capable tool.
+
+    Four documents stated that review agents are read-only while both charters granted
+    `Bash`. A reviewer that can edit what it reviews is not a reviewer, and the gap was
+    invisible because the claim and the grant lived in different files.
+    """
+    failures: list[Failure] = []
+    agents = root / ".claude" / "agents"
+    if not agents.is_dir():
+        return failures
+
+    for path in sorted(agents.glob("*.md")):
+        rel = path.relative_to(root)
+        text = path.read_text(encoding="utf-8")
+        front = re.match(r"^---\n(.*?)\n---", text, re.DOTALL)
+        if not front:
+            continue
+        tools_line = re.search(r"^tools:\s*(.+)$", front.group(1), re.MULTILINE)
+        if not tools_line:
+            continue  # No `tools:` key means all tools -- an implementation agent.
+        granted = {t.strip() for t in tools_line.group(1).split(",") if t.strip()}
+
+        claims_readonly = any(marker in text.lower() for marker in READ_ONLY_MARKERS)
+        if not claims_readonly:
+            continue
+        offending = sorted(granted & WRITE_CAPABLE_TOOLS)
+        if offending:
+            failures.append(
+                Failure(
+                    f"{rel}: describes itself as read-only but is granted "
+                    f"{offending}; these permit editing what it reviews"
+                )
+            )
+    return failures
+
+
 def check_single_queue(root: Path) -> list[Failure]:
     """GitHub Issues are the only live work queue (CLAUDE.md, governing principle 1).
 
@@ -306,6 +350,7 @@ CHECKS = {
     "layering": check_layering,
     "source-boundary": check_source_boundary,
     "action-pins": check_action_pins,
+    "readonly-agents": check_readonly_agents,
     "single-queue": check_single_queue,
 }
 
