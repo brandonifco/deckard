@@ -191,6 +191,64 @@ class SourceBoundaryTests(CheckTestCase):
         )
         self.assertCaught(repo_checks.check_source_boundary(self.repo.root), "no valid sha256")
 
+    # ---- regression: the suffix allowlist made this check blind to .txt -------------
+    #
+    # The original implementation only inspected files whose suffix was in
+    # TEXT_SUFFIXES, which has no ".txt" -- the exact extension every document in this
+    # repository teaches for source packets. A committed chapter4.txt full of rulebook
+    # prose produced no findings at all.
+
+    def test_packet_committed_as_txt_is_caught(self):
+        marker = "DECKARD SOURCE" + " PACKET"
+        self.repo.write("reference/chapter4.txt", f"{marker}\nrulebook prose here\n")
+        self.assertCaught(
+            repo_checks.check_source_boundary(self.repo.root), "extracted source packet"
+        )
+
+    def test_local_path_committed_as_txt_is_caught(self):
+        self.repo.write("reference/config.txt", '{"path": "' + "/home/" + 'x/sr6.pdf"}\n')
+        self.assertCaught(repo_checks.check_source_boundary(self.repo.root), "leaks a local")
+
+    def test_extensionless_file_is_inspected(self):
+        marker = "DECKARD SOURCE" + " PACKET"
+        self.repo.write("notes", f"{marker}\n")
+        self.assertCaught(
+            repo_checks.check_source_boundary(self.repo.root), "extracted source packet"
+        )
+
+    def test_unusual_extensions_are_inspected(self):
+        marker = "DECKARD SOURCE" + " PACKET"
+        for name in ("a.xml", "b.csv", "c.html", "d.rst", "e.sql", "f.resx", "g.log"):
+            with self.subTest(name=name):
+                repo = FixtureRepo()
+                self.addCleanup(repo.cleanup)
+                repo.write(name, f"{marker}\n")
+                self.assertCaught(
+                    repo_checks.check_source_boundary(repo.root), "extracted source packet"
+                )
+
+    def test_binary_files_do_not_crash_the_scan(self):
+        self.repo.write("logo.png", b"\x89PNG\r\n\x1a\n\xff\xfe\xfd")
+        self.repo.write("blob.bin", b"\xff\xfe\x00\x01binary")
+        self.assertEqual(repo_checks.check_source_boundary(self.repo.root), [])
+
+    # ---- regression: exemptions must be per-check, not per-file --------------------
+
+    def test_source_handling_doc_is_subject_to_the_local_path_check(self):
+        """It was blanket-exempt, and it is the doc most likely to grow a real path."""
+        self.repo.write("docs/source-handling.md", "export SR6_CORE_PDF=" + "/home/" + "x/b.pdf\n")
+        self.assertCaught(repo_checks.check_source_boundary(self.repo.root), "leaks a local")
+
+    def test_source_slice_tool_is_still_allowed_to_emit_the_marker(self):
+        marker = "DECKARD SOURCE" + " PACKET"
+        self.repo.write("tools/source-slice.py", f'HEADER = "{marker}"\n')
+        self.assertEqual(repo_checks.check_source_boundary(self.repo.root), [])
+
+    def test_source_slice_tool_is_NOT_exempt_from_the_local_path_check(self):
+        """It needs the marker exemption. It has no business holding a local path."""
+        self.repo.write("tools/source-slice.py", 'DEFAULT = "' + "/home/" + 'x/b.pdf"\n')
+        self.assertCaught(repo_checks.check_source_boundary(self.repo.root), "leaks a local")
+
     def test_manifest_carrying_a_local_path_is_caught(self):
         self.repo.write(
             ".github/source-manifest.json",

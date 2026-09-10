@@ -26,10 +26,41 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
+# Suffixes whose text hygiene (BOM/CRLF/trailing newline) is checked. This is a
+# formatting concern, so an allowlist is right here.
 TEXT_SUFFIXES = {
     ".cs", ".csproj", ".props", ".targets", ".slnx", ".json", ".md",
     ".yml", ".yaml", ".sh", ".py", ".editorconfig", ".gitattributes", ".gitignore",
 }
+
+# Binary formats that will never be scanned for leaked source text. Everything else that
+# decodes as UTF-8 IS scanned, including .txt and extensionless files.
+#
+# The source-boundary check originally reused TEXT_SUFFIXES, which has no ".txt" -- the
+# exact extension every document here teaches for source packets ("--output packet.txt").
+# A committed chapter4.txt full of rulebook prose produced no findings at all. An
+# allowlist is the wrong shape for a check whose job is to catch the file nobody
+# anticipated.
+BINARY_SUFFIXES = {
+    ".pdf", ".epub", ".mobi", ".png", ".jpg", ".jpeg", ".gif", ".ico", ".webp",
+    ".zip", ".gz", ".tar", ".7z", ".dll", ".exe", ".so", ".dylib", ".pdb",
+    ".woff", ".woff2", ".ttf", ".otf", ".mp3", ".mp4", ".wav",
+}
+
+
+def decode_text(path: Path) -> str | None:
+    """Return the file's text, or None when it is binary or unreadable.
+
+    Deliberately attempts every non-binary file rather than consulting a suffix
+    allowlist: the leak this guards against arrives in whatever extension the person
+    leaking it happened to type.
+    """
+    if path.suffix.lower() in BINARY_SUFFIXES or not path.is_file():
+        return None
+    try:
+        return path.read_bytes().decode("utf-8")
+    except (UnicodeDecodeError, OSError):
+        return None
 
 # --------------------------------------------------------------------------------
 # Determinism. See docs/architecture.md and CLAUDE.md.
@@ -64,11 +95,18 @@ PACKET_MARKER = "DECKARD SOURCE" + " PACKET"
 # naming a particular file: the checker should not need to know, or publish, what
 # Brandon called his copy.
 LOCAL_PATH_LEAK = re.compile(r"(?:/home/|/Users/|/root/)[A-Za-z0-9_.\-]+/")
-SOURCE_AWARE_FILES = {
-    "tools/source-slice.py",
-    "tools/repo-checks.py",
-    "tools/tests/test_repo_checks.py",
-    "docs/source-handling.md",
+# Exemptions are PER CHECK, not per file. A blanket allowlist previously disabled BOTH
+# checks on docs/source-handling.md -- the single document most likely to acquire a real
+# local path in an example, and the one with least reason to be exempt from that check.
+# Each entry below is exempt from exactly the one check it genuinely needs to be.
+PACKET_MARKER_EXEMPT = {
+    "tools/source-slice.py",            # emits the marker
+    "tools/repo-checks.py",             # searches for the marker
+    "tools/tests/test_repo_checks.py",  # asserts on the marker
+}
+LOCAL_PATH_EXEMPT = {
+    "tools/repo-checks.py",             # defines the pattern
+    "tools/tests/test_repo_checks.py",  # builds fake paths as fixtures
 }
 
 ALLOWED_PROJECT_REFS: dict[str, set[str]] = {
@@ -169,17 +207,18 @@ def check_source_boundary(root: Path) -> list[Failure]:
 
     for path in tracked_files(root):
         rel = path.relative_to(root)
+        posix = rel.as_posix()
+
         if path.suffix.lower() in {".pdf", ".epub", ".mobi"}:
             failures.append(Failure(f"{rel}: rulebook-shaped binary is tracked in git"))
-        if not path.is_file() or path.suffix not in TEXT_SUFFIXES:
+
+        text = decode_text(path)
+        if text is None:
             continue
-        try:
-            text = path.read_text(encoding="utf-8")
-        except UnicodeDecodeError:
-            continue
-        if PACKET_MARKER in text and rel.as_posix() not in SOURCE_AWARE_FILES:
+
+        if PACKET_MARKER in text and posix not in PACKET_MARKER_EXEMPT:
             failures.append(Failure(f"{rel}: contains an extracted source packet"))
-        if LOCAL_PATH_LEAK.search(text) and rel.as_posix() not in SOURCE_AWARE_FILES:
+        if LOCAL_PATH_LEAK.search(text) and posix not in LOCAL_PATH_EXEMPT:
             failures.append(Failure(f"{rel}: leaks a local authoritative-source path"))
 
     if manifest_path.is_file():

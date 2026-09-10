@@ -34,7 +34,11 @@ PAGES = [
 ]
 
 
-@unittest.skipIf(shutil.which("pdftotext") is None, "poppler-utils not installed")
+NEEDS_PDFTOTEXT = unittest.skipIf(
+    shutil.which("pdftotext") is None, "poppler-utils not installed"
+)
+
+
 class SourceSliceTests(unittest.TestCase):
     """Each test gets its own tmp source + tmp manifest; nothing touches the real ones."""
 
@@ -85,11 +89,13 @@ class SourceSliceTests(unittest.TestCase):
 
     # ------------------------------------------------------------------ happy paths
 
+    @NEEDS_PDFTOTEXT
     def test_verify_only_accepts_the_pinned_hash(self):
         result = self.run_tool("--verify-only")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("sha256 verified", result.stdout)
 
+    @NEEDS_PDFTOTEXT
     def test_extracts_exactly_the_requested_pages(self):
         result = self.run_tool("--pages", "2-3")
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -98,12 +104,14 @@ class SourceSliceTests(unittest.TestCase):
         self.assertNotIn("ALPHA PAGE ONE", result.stdout)
         self.assertNotIn("DELTA PAGE FOUR", result.stdout)
 
+    @NEEDS_PDFTOTEXT
     def test_single_page_range_is_accepted(self):
         result = self.run_tool("--pages", "4")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("DELTA PAGE FOUR", result.stdout)
         self.assertNotIn("CHARLIE PAGE THREE", result.stdout)
 
+    @NEEDS_PDFTOTEXT
     def test_printed_pages_are_converted_using_the_manifest_offset(self):
         # Offset 1: printed p.2 is PDF p.3.
         result = self.run_tool("--printed-pages", "2")
@@ -112,11 +120,13 @@ class SourceSliceTests(unittest.TestCase):
         self.assertIn("pdf pages       : 3-3", result.stdout)
         self.assertIn("printed pages   : 2-2", result.stdout)
 
+    @NEEDS_PDFTOTEXT
     def test_layout_mode_still_extracts(self):
         result = self.run_tool("--pages", "1", "--layout")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("extraction      : pdftotext -layout", result.stdout)
 
+    @NEEDS_PDFTOTEXT
     def test_output_file_is_written(self):
         out = self.tmp / "packet.txt"
         result = self.run_tool("--pages", "1", "--output", str(out))
@@ -125,18 +135,21 @@ class SourceSliceTests(unittest.TestCase):
 
     # -------------------------------------------------------------- provenance
 
+    @NEEDS_PDFTOTEXT
     def test_packet_header_carries_full_provenance(self):
         result = self.run_tool("--pages", "1")
         for expected in ("sourceId        : sr6-core", "edition         : Fixture Edition",
                          f"sha256          : {self.sha}", "pdf pages       : 1-1"):
             self.assertIn(expected, result.stdout)
 
+    @NEEDS_PDFTOTEXT
     def test_packet_warns_against_committing_it(self):
         result = self.run_tool("--pages", "1")
         self.assertIn("never commit", result.stdout.lower())
 
     # ------------------------------------------------------------------ refusals
 
+    @NEEDS_PDFTOTEXT
     def test_hash_mismatch_refuses_and_extracts_nothing(self):
         wrong = self._write_manifest("0" * 64)
         result = self.run_tool("--pages", "1", manifest=wrong)
@@ -144,67 +157,80 @@ class SourceSliceTests(unittest.TestCase):
         self.assertIn("HASH MISMATCH", result.stderr)
         self.assertNotIn("ALPHA PAGE ONE", result.stdout)
 
+    @NEEDS_PDFTOTEXT
     def test_hash_mismatch_is_checked_before_extraction(self):
         wrong = self._write_manifest("0" * 64)
         result = self.run_tool("--verify-only", manifest=wrong)
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(result.stdout, "")
 
+    @NEEDS_PDFTOTEXT
     def test_unconfigured_source_refuses(self):
         result = self.run_tool("--pages", "1", source=None)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("not configured", result.stderr)
 
+    @NEEDS_PDFTOTEXT
     def test_nonexistent_source_path_refuses(self):
         result = self.run_tool("--pages", "1", source=str(self.tmp / "nope.pdf"))
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("does not exist", result.stderr)
 
+    @NEEDS_PDFTOTEXT
     def test_relative_source_path_refuses(self):
         result = self.run_tool("--pages", "1", source="relative/path.pdf")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("absolute path", result.stderr)
 
+    @NEEDS_PDFTOTEXT
     def test_unknown_source_id_refuses(self):
         result = self.run_tool("--pages", "1", "--source-id", "sr6-supplement")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Unknown sourceId", result.stderr)
 
+    @NEEDS_PDFTOTEXT
     def test_out_of_range_pages_refuse(self):
         result = self.run_tool("--pages", "4-9")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("has 5 pages", result.stderr)
 
+    @NEEDS_PDFTOTEXT
     def test_inverted_range_refuses(self):
         result = self.run_tool("--pages", "4-2")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("inverted", result.stderr)
 
+    @NEEDS_PDFTOTEXT
     def test_malformed_range_refuses(self):
         result = self.run_tool("--pages", "forty-two")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("expects N or N-M", result.stderr)
 
+    @NEEDS_PDFTOTEXT
     def test_missing_anchor_refuses(self):
         result = self.run_tool("--pages", "1", "--expect", "Vehicle Handling Table")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Expected anchor", result.stderr)
 
+    @NEEDS_PDFTOTEXT
     def test_present_anchor_passes(self):
         result = self.run_tool("--pages", "1", "--expect", "Success Test")
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    @NEEDS_PDFTOTEXT
     def test_all_anchors_must_be_present(self):
         result = self.run_tool("--pages", "1", "--expect", "Success Test", "--expect", "Glitch")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Glitch", result.stderr)
 
+    @NEEDS_PDFTOTEXT
     def test_oversize_packet_refuses_without_opt_in(self):
         big = self._write_manifest(self.sha, page_count=400)
         result = self.run_tool("--pages", "1-40", manifest=big)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Refusing to extract", result.stderr)
 
+    @NEEDS_PDFTOTEXT
     def test_no_page_selection_refuses(self):
         result = self.run_tool()
         self.assertNotEqual(result.returncode, 0)
@@ -225,6 +251,7 @@ class SourceSliceTests(unittest.TestCase):
         self.assertNotIn("--source-path", help_text)
         self.assertNotIn("--pdf", help_text)
 
+    @NEEDS_PDFTOTEXT
     def test_manifest_override_requires_explicit_opt_in(self):
         env = dict(os.environ)
         env["DECKARD_SOURCE_MANIFEST"] = str(self.manifest)
@@ -237,6 +264,7 @@ class SourceSliceTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("DECKARD_ALLOW_TEST_MANIFEST", result.stderr)
 
+    @NEEDS_PDFTOTEXT
     def test_override_packets_are_stamped_non_authoritative(self):
         result = self.run_tool("--pages", "1")
         self.assertIn("NON-AUTHORITATIVE", result.stdout)
