@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Deckard.Core/Deckard.Core.csproj" />
+    <Project Path="src/Deckard.Data/Deckard.Data.csproj" />
+    <Project Path="src/Deckard.Rules/Deckard.Rules.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Deckard.Core.Tests/Deckard.Core.Tests.csproj" />
+    <Project Path="tests/Deckard.Data.Tests/Deckard.Data.Tests.csproj" />
+    <Project Path="tests/Deckard.Rules.Tests/Deckard.Rules.Tests.csproj" />
+  </Folder>
+</Solution>

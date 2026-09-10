@@ -1,0 +1,28 @@
+<Project>
+
+  <!-- Repo-wide defaults. Deckard is a deterministic rules engine: reproducibility
+       and zero-warning builds are load-bearing, not stylistic. See docs/architecture.md. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <WarningsAsErrors />
+    <AnalysisLevel>latest</AnalysisLevel>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <Deterministic>true</Deterministic>
+    <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <NoWarn />
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <RootNamespaceBase>Deckard</RootNamespaceBase>
+    <Authors>Brandon</Authors>
+    <Product>Deckard</Product>
+    <RepositoryUrl>https://github.com/brandonifco/deckard</RepositoryUrl>
+  </PropertyGroup>
+
+</Project>

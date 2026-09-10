@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Deterministic primitives only. Core must not reference the filesystem, a UI,
+       ambient time, the network, environment variables, or the rulebook.
+       See docs/architecture.md. -->
+  <PropertyGroup>
+    <RootNamespace>Deckard.Core</RootNamespace>
+  </PropertyGroup>
+
+</Project>

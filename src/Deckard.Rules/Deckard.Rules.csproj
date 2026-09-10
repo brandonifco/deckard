@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Deckard.Rules</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Deckard.Core/Deckard.Core.csproj" />
+    <ProjectReference Include="../Deckard.Data/Deckard.Data.csproj" />
+  </ItemGroup>
+
+</Project>

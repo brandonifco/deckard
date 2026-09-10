@@ -1,0 +1,51 @@
+name: build-and-test
+
+# Deckard has exactly one definition of "acceptable": ./scripts/validate.sh full.
+# This workflow calls it and does nothing else of substance. Reimplementing the recipe
+# here would create a second definition that drifts from the first, and the drift is
+# always discovered at the worst moment.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancel superseded runs for the same PR, never for main.
+concurrency:
+  group: build-and-test-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Read the pinned SDK version
+        id: sdk
+        run: echo "version=$(python3 -c 'import json;print(json.load(open("global.json"))["sdk"]["version"])')" >> "$GITHUB_OUTPUT"
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: ${{ steps.sdk.outputs.version }}
+
+      - name: Install poppler-utils
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq poppler-utils
+
+      - name: Assert pdftotext is present
+        # The source tooling tests skip themselves without pdftotext. A silent skip of
+        # the source-boundary suite is exactly the failure this project exists to avoid,
+        # so fail loudly here instead of quietly proving nothing.
+        run: command -v pdftotext || { echo "pdftotext missing; source tests would silently skip"; exit 1; }
+
+      - name: Validate
+        env:
+          CI: "true"
+        run: ./scripts/validate.sh full

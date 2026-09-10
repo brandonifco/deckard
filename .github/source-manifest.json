@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "_comment": [
+    "Identification metadata ONLY. This file must never contain rulebook text.",
+    "The source file itself is never committed; see docs/source-handling.md.",
+    "Changing a sha256 here is a deliberate source-baseline change and requires",
+    "its own Issue, its own PR, and an ADR under docs/decisions/."
+  ],
+  "sources": [
+    {
+      "sourceId": "sr6-core",
+      "authority": 1,
+      "title": "Shadowrun, Sixth World",
+      "edition": "Sixth World core rulebook, First Printing by Catalyst Game Labs",
+      "publisher": "Catalyst Game Labs (imprint of InMediaRes Productions, LLC)",
+      "copyrightYear": 2019,
+      "copyrightHolder": "The Topps Company, Inc.",
+      "sha256": "7db88be98dbc2a4d1f777b7ff10034af3ea35e20bb3899b2aad95b7232bbac41",
+      "byteSize": 12216214,
+      "pdfPageCount": 322,
+      "pageNumbering": {
+        "printedPageEqualsPdfPageMinus": 1,
+        "verifiedAtPdfPages": [
+          30,
+          50,
+          100,
+          200,
+          300
+        ]
+      },
+      "envVar": "SR6_CORE_PDF",
+      "notes": [
+        "Selected by Brandon on 2026-09-10 as the single authoritative baseline.",
+        "Identified from the credits page: (c) 2019 The Topps Company, 'First Printing",
+        "by Catalyst Game Labs'. This is NOT Seattle City Edition, Berlin City Edition,",
+        "or Hong Kong City Edition. A newer printing does not supersede this baseline.",
+        "Official errata are deliberately NOT part of the baseline as of bootstrap;",
+        "see docs/decisions/0003-source-baseline.md."
+      ]
+    }
+  ]
+}
