@@ -15,6 +15,7 @@ Checks:
   action-pins    third-party GitHub Actions pinned to immutable commit SHAs
   readonly-agents  agents claiming to be read-only carry no write-capable tool
   phase-authority  current phase is stated in CLAUDE.md and nowhere else
+  invariant-drift  prose restatements match their single authority
   single-queue   no competing task backlog outside GitHub Issues
 """
 from __future__ import annotations
@@ -71,18 +72,34 @@ def decode_text(path: Path) -> str | None:
 # => same outcomes and same ordered event history. Every pattern below breaks that
 # by pulling entropy or wall-clock time out of the ambient environment.
 # --------------------------------------------------------------------------------
-BANNED_IN_ENGINE: list[tuple[str, str]] = [
-    (r"\bRandom\s*\.\s*Shared\b", "Random.Shared is process-global ambient entropy"),
-    (r"\bnew\s+Random\s*\(", "new Random() is ambient entropy; inject IRandomSource"),
-    (r"\bRandomNumberGenerator\b", "cryptographic RNG is not replayable"),
-    (r"\bGuid\s*\.\s*NewGuid\s*\(", "Guid.NewGuid() as game state is non-reproducible"),
-    (r"\bDateTime\s*\.\s*(Now|UtcNow|Today)\b", "ambient clock breaks replay"),
-    (r"\bDateTimeOffset\s*\.\s*(Now|UtcNow)\b", "ambient clock breaks replay"),
-    (r"\bEnvironment\s*\.\s*TickCount", "process timing is not a rules input"),
-    (r"\bStopwatch\s*\.\s*(GetTimestamp|StartNew)", "process timing is not a rules input"),
-    (r"\bEnvironment\s*\.\s*GetEnvironmentVariable", "engine must not read the environment"),
-    (r"\bTask\s*\.\s*Run\b", "concurrency makes resolution order non-deterministic"),
-    (r"\.\s*AsParallel\s*\(", "PLINQ makes iteration order non-deterministic"),
+# (display, pattern, why). `display` is the canonical name of the banned API, and it is
+# what every prose restatement is checked against -- see check_invariant_drift. Adding an
+# entry here without updating the documents that list it fails the build, which is the
+# point: the ban list was restated in five places and had already drifted, with the agent
+# most likely to write engine code holding the most incomplete copy.
+BANNED_IN_ENGINE: list[tuple[str, str, str]] = [
+    ("Random.Shared", r"\bRandom\s*\.\s*Shared\b",
+     "Random.Shared is process-global ambient entropy"),
+    ("new Random()", r"\bnew\s+Random\s*\(",
+     "new Random() is ambient entropy; inject IRandomSource"),
+    ("RandomNumberGenerator", r"\bRandomNumberGenerator\b",
+     "cryptographic RNG is not replayable"),
+    ("Guid.NewGuid()", r"\bGuid\s*\.\s*NewGuid\s*\(",
+     "Guid.NewGuid() as game state is non-reproducible"),
+    ("DateTime.Now", r"\bDateTime\s*\.\s*(Now|UtcNow|Today)\b",
+     "ambient clock breaks replay"),
+    ("DateTimeOffset.Now", r"\bDateTimeOffset\s*\.\s*(Now|UtcNow)\b",
+     "ambient clock breaks replay"),
+    ("Environment.TickCount", r"\bEnvironment\s*\.\s*TickCount",
+     "process timing is not a rules input"),
+    ("Stopwatch", r"\bStopwatch\s*\.\s*(GetTimestamp|StartNew)",
+     "process timing is not a rules input"),
+    ("Environment.GetEnvironmentVariable", r"\bEnvironment\s*\.\s*GetEnvironmentVariable",
+     "engine must not read the environment"),
+    ("Task.Run", r"\bTask\s*\.\s*Run\b",
+     "concurrency makes resolution order non-deterministic"),
+    ("AsParallel", r"\.\s*AsParallel\s*\(",
+     "PLINQ makes iteration order non-deterministic"),
 ]
 
 # An engine file may opt out only with an explicit, reviewed justification on the line.
@@ -171,7 +188,7 @@ def check_determinism(root: Path) -> list[Failure]:
         for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
             if ALLOW_MARKER in line:
                 continue
-            for pattern, why in BANNED_IN_ENGINE:
+            for _display, pattern, why in BANNED_IN_ENGINE:
                 if re.search(pattern, line):
                     failures.append(
                         Failure(f"{rel}:{lineno}: {why}  [{line.strip()[:70]}]")
@@ -347,6 +364,101 @@ def check_phase_authority(root: Path) -> list[Failure]:
     return failures
 
 
+# Documents that restate the determinism ban list in full and must stay complete.
+BAN_LIST_RESTATEMENTS = ("docs/architecture.md", ".claude/agents/engine-dev.md")
+
+
+def check_invariant_drift(root: Path) -> list[Failure]:
+    """Prose restatements of a single-authority fact must match the authority.
+
+    Restating an invariant where an agent will actually read it is worth the duplication.
+    Unchecked duplication is not: the ban list lived in five documents and had already
+    drifted at one hour old, and the manifest's page offset was restated in four places
+    that a printing change would leave confidently wrong -- the exact off-by-one ADR 0003
+    says the manifest exists to prevent.
+    """
+    failures: list[Failure] = []
+    expected = {display for display, _pattern, _why in BANNED_IN_ENGINE}
+
+    for name in BAN_LIST_RESTATEMENTS:
+        path = root / name
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8")
+        missing = sorted(d for d in expected if d.replace("()", "") not in text)
+        if missing:
+            failures.append(
+                Failure(
+                    f"{name}: restates the determinism ban list but omits {missing}; "
+                    "authority is BANNED_IN_ENGINE in tools/repo-checks.py"
+                )
+            )
+
+    # --- manifest facts -------------------------------------------------------------
+    manifest_path = root / ".github" / "source-manifest.json"
+    if manifest_path.is_file():
+        entry = json.loads(manifest_path.read_text(encoding="utf-8"))["sources"][0]
+        offset = entry["pageNumbering"]["printedPageEqualsPdfPageMinus"]
+        page_count = entry["pdfPageCount"]
+
+        offset_claim = re.compile(r"PDF page\s*[-−]\s*(\d+)")
+        count_claim = re.compile(r"(\d+)\s*(?:PDF pages|pages\b(?=[^.]*\bPDF))")
+
+        for path in sorted((root / "docs").rglob("*.md")) + sorted(
+            (root / ".claude").rglob("*.md")
+        ):
+            rel = path.relative_to(root).as_posix()
+            text = path.read_text(encoding="utf-8")
+            for match in offset_claim.finditer(text):
+                if int(match.group(1)) != offset:
+                    failures.append(
+                        Failure(
+                            f"{rel}: states 'PDF page - {match.group(1)}' but the manifest "
+                            f"says {offset}"
+                        )
+                    )
+            for match in count_claim.finditer(text):
+                if int(match.group(1)) != page_count:
+                    failures.append(
+                        Failure(
+                            f"{rel}: states {match.group(1)} PDF pages but the manifest "
+                            f"says {page_count}"
+                        )
+                    )
+
+    # --- packet size limit ----------------------------------------------------------
+    slice_tool = root / "tools" / "source-slice.py"
+    if slice_tool.is_file():
+        match = re.search(r"^MAX_PAGES\s*=\s*(\d+)", slice_tool.read_text(encoding="utf-8"),
+                          re.MULTILINE)
+        if match:
+            limit = int(match.group(1))
+            # Covers the phrasings actually used: "bounded to 24 pages",
+            # "24 pages maximum", "limit 24", "a maximum of 24 pages".
+            claim = re.compile(
+                r"(?:bounded\s+to\s*(\d+)\s*pages"
+                r"|(\d+)\s*pages?\s+maximum"
+                r"|maximum\s+of\s+(\d+)\s*pages"
+                r"|limit(?:ed)?\s+(?:to\s+)?(\d+)\s*pages?"
+                r"|\(limit\s+(\d+)\))",
+                re.IGNORECASE,
+            )
+            for path in sorted((root / "docs").rglob("*.md")) + sorted(
+                (root / ".claude").rglob("*.md")
+            ):
+                rel = path.relative_to(root).as_posix()
+                for m in claim.finditer(path.read_text(encoding="utf-8")):
+                    stated = next(g for g in m.groups() if g is not None)
+                    if int(stated) != limit:
+                        failures.append(
+                            Failure(
+                                f"{rel}: states a {stated}-page packet limit but "
+                                f"source-slice.py MAX_PAGES is {limit}"
+                            )
+                        )
+    return failures
+
+
 def check_single_queue(root: Path) -> list[Failure]:
     """GitHub Issues are the only live work queue (CLAUDE.md, governing principle 1).
 
@@ -379,6 +491,7 @@ CHECKS = {
     "action-pins": check_action_pins,
     "readonly-agents": check_readonly_agents,
     "phase-authority": check_phase_authority,
+    "invariant-drift": check_invariant_drift,
     "single-queue": check_single_queue,
 }
 
