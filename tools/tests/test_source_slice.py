@@ -269,13 +269,56 @@ class SourceSliceTests(unittest.TestCase):
         result = self.run_tool("--pages", "1")
         self.assertIn("NON-AUTHORITATIVE", result.stdout)
 
-    def test_real_manifest_packets_are_not_stamped(self):
-        """A packet from the committed manifest must carry no override warning."""
+    def test_packets_from_the_real_manifest_carry_no_override_stamp(self):
+        """Assert the behaviour the name promises, rather than the manifest's shape.
+
+        The previous version of this test never generated a packet and never looked for
+        a stamp -- it checked three manifest fields and was named for something else
+        entirely. build_header is called directly here so the assertion is hermetic: the
+        authoritative-source path is what makes a real packet impossible in CI.
+        """
+        header = self._load_tool().build_header(
+            {
+                "sourceId": "sr6-core",
+                "title": "Fixture Book",
+                "edition": "Fixture Edition",
+                "sha256": "a" * 64,
+                "pageNumbering": {"printedPageEqualsPdfPageMinus": 1},
+            },
+            first=10, last=11, layout=False, is_override=False,
+        )
+        self.assertNotIn("NON-AUTHORITATIVE", header)
+        self.assertIn("sourceId        : sr6-core", header)
+
+    def test_packets_from_a_test_manifest_are_stamped(self):
+        header = self._load_tool().build_header(
+            {
+                "sourceId": "sr6-core",
+                "title": "Fixture Book",
+                "edition": "Fixture Edition",
+                "sha256": "a" * 64,
+                "pageNumbering": {"printedPageEqualsPdfPageMinus": 1},
+            },
+            first=10, last=11, layout=False, is_override=True,
+        )
+        self.assertIn("NON-AUTHORITATIVE", header)
+
+    def test_committed_manifest_has_the_expected_shape(self):
+        """Split out from the test above, which was named for stamping and did this."""
         real = json.loads((ROOT / ".github" / "source-manifest.json").read_text(encoding="utf-8"))
         entry = real["sources"][0]
         self.assertEqual(entry["sourceId"], "sr6-core")
         self.assertRegex(entry["sha256"], r"^[0-9a-f]{64}$")
         self.assertGreater(entry["pdfPageCount"], 0)
+
+    @staticmethod
+    def _load_tool():
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("source_slice", TOOL)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
 
 
 if __name__ == "__main__":
