@@ -7,8 +7,8 @@ Deckard is not a game. It is the layer a game would sit on: given a state, a com
 a seed, it resolves a rule and explains how. A future client — a game, a simulator, an
 encounter builder, character tooling — consumes it as a library.
 
-> **Status:** Phase 0 (repository and source foundation) complete. No Shadowrun mechanic
-> is implemented yet.
+> **Status:** no Shadowrun mechanic is implemented yet — this is the foundation the
+> mechanics will stand on. Current phase is recorded in [`CLAUDE.md`](CLAUDE.md).
 
 ## What "deterministic" means here
 

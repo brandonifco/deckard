@@ -12,10 +12,14 @@ kept short on purpose: read the routed document when you need the detail, not be
 
 ## Current phase
 
+<!-- This is the single authority for current phase. README.md and docs/roadmap.md link
+     here rather than restating it; repo-checks enforces that. -->
+
 **Phase 0 — repository and source foundation.** Complete.
 **Phase 1 — deterministic randomness and the dice/test kernel.** Next.
 
 No Shadowrun mechanic is implemented yet. Do not add one outside its own Issue.
+Phase order and exit criteria: `docs/roadmap.md`.
 
 ## Source authority
 
@@ -69,6 +73,14 @@ tools/dispatch-agent.sh <issue-number>     # isolated worktree, outside this rep
 - Never push to `main`. Never `git add -A` or `git add .` — stage explicit paths.
 - The primary checkout stays on `main`, clean. Implementation happens in a worktree.
 - A PR must close exactly one Issue and contain no unrelated changes.
+
+A hook blocks mutation of the primary checkout and bulk staging. Two environment
+variables affect it, and nothing else does:
+
+| Variable | Effect |
+| --- | --- |
+| `DECKARD_ALLOW_PRIMARY_MUTATION=1` | Escape hatch. Permits one sanctioned primary-checkout command — fast-forwarding after a merge, or a bootstrap-style commit. Say in the PR or report why it was needed. |
+| `DECKARD_WORKTREE_ROOT` | Where worktrees are created. Defaults to `~/deckard-worktrees`. Must resolve outside this repository; `dispatch-agent.sh` refuses otherwise. |
 
 ## Canonical validation
 

@@ -99,6 +99,28 @@ if ! grep -qvE '^\s*(<!--.*|.*-->|#.*|N/A|None\.|)\s*$' "$BODY_FILE"; then
   die "issue body is still empty -- nothing filed"
 fi
 
+# A mechanics Issue must identify its source location precisely enough to implement
+# from. An Issue that reaches an agent without one produces a mechanic written from
+# memory, which is the single thing this project's source handling exists to prevent.
+IS_MECHANICS=0
+for label in "${LABELS[@]:-}"; do
+  case "$label" in area:rules|area:data) IS_MECHANICS=1 ;; esac
+done
+
+if [[ "$IS_MECHANICS" -eq 1 ]]; then
+  SOURCE_SECTION="$(awk '/^## Source/{f=1;next} /^## /{f=0} f' "$BODY_FILE" \
+                    | grep -vE '^\s*(<!--|.*-->)' || true)"
+  if ! printf '%s' "$SOURCE_SECTION" | grep -qiE 'p(rinted)?\.? ?p?\.? *[0-9]+'; then
+    die "this Issue is labelled area:rules or area:data but its ## Source section names
+       no page. A mechanics Issue must cite its location, e.g.
+
+         SR6 Core / Tests / printed pp. 35-36 / PDF pp. 36-37
+
+       Locate it first -- tools/source-slice.py can confirm a range with --expect.
+       Nothing was filed."
+  fi
+fi
+
 ARGS=(issue create --title "$TITLE" --body-file "$BODY_FILE")
 for label in "${LABELS[@]:-}"; do
   [[ -n "$label" ]] && ARGS+=(--label "$label")

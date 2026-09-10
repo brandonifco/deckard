@@ -6,7 +6,9 @@ GitHub, not this document.
 
 ## Status
 
-Phase 0 is complete. Phase 1 is next.
+Current phase is recorded in [`../CLAUDE.md`](../CLAUDE.md), which every agent already
+loads. It is not repeated here: a phase marker in three documents is three things to
+update and two things to forget.
 
 ## A warning about this ordering
 
