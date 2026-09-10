@@ -58,10 +58,28 @@ reading and move on. Do not bury the decision in the diff. That is what
 The engine's central claim: same rules version + same state + same seed + same ordered
 decisions ⇒ same outcomes and the same ordered event history.
 
-No `Random.Shared`, no `new Random()`, no `DateTime.Now`, no `Guid.NewGuid()` as game
-state, no `Task.Run`, no `.AsParallel()`, no order-dependent iteration, no floating point
-for discrete rules. Randomness arrives only through an injected `IRandomSource`.
-`tools/repo-checks.py` will fail you if you forget.
+Banned in engine source, in full — `tools/repo-checks.py --only determinism` fails the
+build on each of these, and this list is checked against that authority:
+
+| Banned | Why |
+| --- | --- |
+| `Random.Shared` | process-global ambient entropy |
+| `new Random()` | ambient entropy; inject `IRandomSource` |
+| `RandomNumberGenerator` | cryptographic RNG is not replayable |
+| `Guid.NewGuid()` as game state | non-reproducible identity |
+| `DateTime.Now` / `UtcNow` / `Today` | ambient clock breaks replay |
+| `DateTimeOffset.Now` / `UtcNow` | ambient clock breaks replay |
+| `Environment.TickCount` | process timing is not a rules input |
+| `Stopwatch` | process timing is not a rules input |
+| `Environment.GetEnvironmentVariable` | the engine must not read its environment |
+| `Task.Run` | concurrency makes resolution order non-deterministic |
+| `AsParallel` | PLINQ makes iteration order non-deterministic |
+
+Also banned, and not mechanically checkable: order-dependent iteration, and floating-point
+arithmetic for discrete rules where exact integer or rational arithmetic is correct.
+
+Randomness arrives only through an injected `IRandomSource`. A genuine exception is opted
+into per line with `// deckard:allow-nondeterminism <reason>` and justified in the PR.
 
 If your change alters how many random values a mechanic consumes, say so explicitly in the
 PR's determinism section. It shifts every subsequent result.

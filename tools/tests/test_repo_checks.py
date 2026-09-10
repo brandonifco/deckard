@@ -365,6 +365,75 @@ class PhaseAuthorityTests(CheckTestCase):
         self.assertEqual(repo_checks.check_phase_authority(self.repo.root), [])
 
 
+class InvariantDriftTests(CheckTestCase):
+    """Restating an invariant is fine. Restating it unchecked is how it drifts.
+
+    At one hour old, engine-dev.md -- the charter of the agent most likely to write
+    engine code -- was missing 5 of the 11 banned APIs.
+    """
+
+    MANIFEST = (
+        '{"sources": [{"sourceId": "sr6-core", "sha256": "' + "a" * 64 + '",'
+        ' "pdfPageCount": 322, "pageNumbering": {"printedPageEqualsPdfPageMinus": 1},'
+        ' "envVar": "SR6_CORE_PDF"}]}\n'
+    )
+
+    def _full_ban_list(self) -> str:
+        return "\n".join(f"| `{d}` | why |" for d, _p, _w in repo_checks.BANNED_IN_ENGINE)
+
+    def test_complete_ban_list_passes(self):
+        self.repo.write("docs/architecture.md", self._full_ban_list())
+        self.repo.write(".claude/agents/engine-dev.md", self._full_ban_list())
+        self.assertEqual(repo_checks.check_invariant_drift(self.repo.root), [])
+
+    def test_incomplete_ban_list_is_caught(self):
+        partial = "\n".join(
+            f"| `{d}` |" for d, _p, _w in repo_checks.BANNED_IN_ENGINE[:4]
+        )
+        self.repo.write("docs/architecture.md", self._full_ban_list())
+        self.repo.write(".claude/agents/engine-dev.md", partial)
+        self.assertCaught(
+            repo_checks.check_invariant_drift(self.repo.root), "omits"
+        )
+
+    def test_the_exact_historical_drift_is_caught(self):
+        """Regression: these 5 were the ones actually missing from engine-dev.md."""
+        omitted = {"RandomNumberGenerator", "DateTimeOffset.Now", "Environment.TickCount",
+                   "Stopwatch", "Environment.GetEnvironmentVariable"}
+        kept = "\n".join(
+            f"| `{d}` |" for d, _p, _w in repo_checks.BANNED_IN_ENGINE if d not in omitted
+        )
+        self.repo.write("docs/architecture.md", self._full_ban_list())
+        self.repo.write(".claude/agents/engine-dev.md", kept)
+        failures = repo_checks.check_invariant_drift(self.repo.root)
+        self.assertCaught(failures, "engine-dev.md")
+        for name in omitted:
+            self.assertIn(name, " ".join(failures))
+
+    def test_correct_page_offset_passes(self):
+        self.repo.write("docs/architecture.md", self._full_ban_list())
+        self.repo.write(".claude/agents/engine-dev.md", self._full_ban_list())
+        self.repo.write(".github/source-manifest.json", self.MANIFEST)
+        self.repo.write("docs/source-handling.md", "printed page = PDF page - 1\n")
+        self.assertEqual(repo_checks.check_invariant_drift(self.repo.root), [])
+
+    def test_drifted_page_offset_is_caught(self):
+        self.repo.write("docs/architecture.md", self._full_ban_list())
+        self.repo.write(".claude/agents/engine-dev.md", self._full_ban_list())
+        self.repo.write(".github/source-manifest.json", self.MANIFEST)
+        self.repo.write("docs/source-handling.md", "printed page = PDF page - 2\n")
+        self.assertCaught(
+            repo_checks.check_invariant_drift(self.repo.root), "manifest says 1"
+        )
+
+    def test_drifted_page_count_is_caught(self):
+        self.repo.write("docs/architecture.md", self._full_ban_list())
+        self.repo.write(".claude/agents/engine-dev.md", self._full_ban_list())
+        self.repo.write(".github/source-manifest.json", self.MANIFEST)
+        self.repo.write("docs/source-handling.md", "The book has 999 PDF pages.\n")
+        self.assertCaught(repo_checks.check_invariant_drift(self.repo.root), "manifest says 322")
+
+
 class RealRepositoryTests(unittest.TestCase):
     """The repository itself must satisfy every check it ships."""
 
