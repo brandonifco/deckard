@@ -184,6 +184,54 @@ class EvidenceTests(unittest.TestCase):
         self.assertIn("without showing output", " ".join(pr_policy.check(body, [], no_labels)))
 
 
+class BotExemptionTests(unittest.TestCase):
+    """Dependency bots have no Issue and never will; humans and agents still do.
+
+    The exemption has to be narrow. If it widened to "anything that looks like a bot",
+    any PR could opt out of the policy by choosing a login.
+    """
+
+    EMPTY = "no sections at all"
+
+    def test_dependabot_with_an_empty_body_passes(self):
+        self.assertEqual(
+            pr_policy.check(self.EMPTY, ["Directory.Packages.props"], no_labels,
+                            author="dependabot[bot]"),
+            [],
+        )
+
+    def test_the_same_empty_body_from_a_human_still_fails(self):
+        failures = pr_policy.check(self.EMPTY, ["Directory.Packages.props"], no_labels,
+                                   author="brandonifco")
+        self.assertTrue(failures)
+        self.assertIn("no linked Issue", " ".join(failures))
+
+    def test_no_author_information_does_not_exempt(self):
+        """A missing author must fail closed, not open."""
+        self.assertTrue(pr_policy.check(self.EMPTY, [], no_labels, author=None))
+
+    def test_a_lookalike_bot_name_is_not_exempt(self):
+        for impostor in ("dependabot", "Dependabot[bot]", "dependabot[bot] ", "not-dependabot[bot]"):
+            self.assertTrue(
+                pr_policy.check(self.EMPTY, [], no_labels, author=impostor),
+                f"{impostor!r} must not be exempt",
+            )
+
+    def test_exemption_does_not_apply_to_rules_files(self):
+        """Even exempt, a bot touching rules files is unusual -- but the exemption is
+        about narrative sections, and build-and-test still gates correctness."""
+        self.assertEqual(
+            pr_policy.check(self.EMPTY, ["src/Deckard.Rules/X.cs"], no_labels,
+                            author="dependabot[bot]"),
+            [],
+        )
+
+    def test_is_exempt_helper(self):
+        self.assertTrue(pr_policy.is_exempt("dependabot[bot]"))
+        self.assertFalse(pr_policy.is_exempt("brandonifco"))
+        self.assertFalse(pr_policy.is_exempt(None))
+
+
 class RulesConformanceTests(unittest.TestCase):
     RULES_FILE = ["src/Deckard.Rules/DiceTest.cs"]
 
