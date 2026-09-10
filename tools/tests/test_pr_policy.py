@@ -194,11 +194,24 @@ class BotExemptionTests(unittest.TestCase):
     EMPTY = "no sections at all"
 
     def test_dependabot_with_an_empty_body_passes(self):
-        self.assertEqual(
-            pr_policy.check(self.EMPTY, ["Directory.Packages.props"], no_labels,
-                            author="dependabot[bot]"),
-            [],
-        )
+        for login in ("dependabot[bot]", "app/dependabot"):
+            self.assertEqual(
+                pr_policy.check(self.EMPTY, ["Directory.Packages.props"], no_labels,
+                                author=login),
+                [],
+                f"{login!r} must be exempt",
+            )
+
+    def test_the_graphql_login_form_is_allowlisted(self):
+        """Regression: the first fix allowlisted only the REST spelling.
+
+        tools/pr-policy.py reads the author from `gh pr view --json author`, which
+        returns {"is_bot": true, "login": "app/dependabot"}. Allowlisting only
+        "dependabot[bot]" meant the exemption never fired against the real interface,
+        and the original tests did not catch it because they asserted the same wrong
+        string the implementation used.
+        """
+        self.assertTrue(pr_policy.is_exempt("app/dependabot"))
 
     def test_the_same_empty_body_from_a_human_still_fails(self):
         failures = pr_policy.check(self.EMPTY, ["Directory.Packages.props"], no_labels,
