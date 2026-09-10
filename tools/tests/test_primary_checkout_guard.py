@@ -180,6 +180,101 @@ class BulkStagingTests(GuardTestCase):
         self.assertEqual(self.bash("git add -p src/a.cs", self.worktree), ALLOW)
 
 
+class BypassRegressionTests(GuardTestCase):
+    """Every command below walked through the first version of this guard.
+
+    A fresh-context review ran 20 payloads against the real hook with cwd set to the
+    primary checkout. These are the ones it got past. The regex approach could not see
+    git's two-token global options, guarded no shell write path at all, and was missing
+    several mutating verbs outright.
+    """
+
+    def test_global_config_option_does_not_hide_a_commit(self):
+        self.assertEqual(self.bash("git -c user.name=x commit -m x", self.primary), BLOCK)
+
+    def test_dash_C_into_the_primary_is_blocked_from_anywhere(self):
+        """`git -C <primary> ...` is the exact form the open-pr skill teaches."""
+        self.assertEqual(
+            self.bash(f"git -C {self.primary} commit -m x", self.tmp), BLOCK
+        )
+
+    def test_dash_C_into_a_worktree_is_still_allowed(self):
+        self.assertEqual(
+            self.bash(f"git -C {self.worktree} commit -m x", self.tmp), ALLOW
+        )
+
+    def test_revert_is_blocked(self):
+        self.assertEqual(self.bash("git revert HEAD", self.primary), BLOCK)
+
+    def test_am_is_blocked(self):
+        self.assertEqual(self.bash("git am patch.diff", self.primary), BLOCK)
+
+    def test_force_moving_a_branch_is_blocked(self):
+        self.assertEqual(self.bash("git branch -f main HEAD~3", self.primary), BLOCK)
+
+    def test_update_ref_is_blocked(self):
+        self.assertEqual(
+            self.bash("git update-ref refs/heads/main HEAD~3", self.primary), BLOCK
+        )
+
+    def test_clean_is_blocked(self):
+        self.assertEqual(self.bash("git clean -xfd", self.primary), BLOCK)
+
+    def test_restore_staged_is_blocked(self):
+        self.assertEqual(self.bash("git restore --staged .", self.primary), BLOCK)
+
+    def test_detached_checkout_is_blocked(self):
+        """`--detach` was read as the `checkout -- <path>` form."""
+        self.assertEqual(self.bash("git checkout --detach abc123", self.primary), BLOCK)
+
+    def test_worktree_inside_the_repository_is_blocked(self):
+        self.assertEqual(
+            self.bash("git worktree add -b b ./inside-repo main", self.primary), BLOCK
+        )
+
+    def test_chained_command_is_inspected_in_every_segment(self):
+        self.assertEqual(
+            self.bash("echo hello && git commit -m x", self.primary), BLOCK
+        )
+
+
+class ShellWriteTests(GuardTestCase):
+    """The first version guarded only Write/Edit, leaving every shell write path open.
+
+    Agents edit through the shell constantly. A guard that blocks the Write tool and
+    permits `sed -i` is not a guard, it is a speed bump with good documentation.
+    """
+
+    def test_append_redirect_into_primary_is_blocked(self):
+        self.assertEqual(self.bash("echo x >> CLAUDE.md", self.primary), BLOCK)
+
+    def test_truncating_redirect_into_primary_is_blocked(self):
+        self.assertEqual(self.bash("echo x > src/a.cs", self.primary), BLOCK)
+
+    def test_in_place_sed_into_primary_is_blocked(self):
+        self.assertEqual(self.bash("sed -i s/a/b/ src/a.cs", self.primary), BLOCK)
+
+    def test_tee_into_primary_is_blocked(self):
+        self.assertEqual(self.bash("echo x | tee src/a.cs", self.primary), BLOCK)
+
+    def test_rm_in_primary_is_blocked(self):
+        self.assertEqual(self.bash("rm -rf src", self.primary), BLOCK)
+
+    def test_mv_in_primary_is_blocked(self):
+        self.assertEqual(self.bash("mv src/a.cs src/b.cs", self.primary), BLOCK)
+
+    def test_reading_is_still_allowed(self):
+        for command in ("cat src/a.cs", "grep -r foo src", "ls -la", "git diff"):
+            self.assertEqual(self.bash(command, self.primary), ALLOW, command)
+
+    def test_writing_outside_the_repo_is_allowed(self):
+        self.assertEqual(self.bash("echo x > /tmp/scratch.txt", self.primary), ALLOW)
+
+    def test_shell_writes_in_a_worktree_are_allowed(self):
+        self.assertEqual(self.bash("sed -i s/a/b/ src/a.cs", self.worktree), ALLOW)
+        self.assertEqual(self.bash("echo x >> src/a.cs", self.worktree), ALLOW)
+
+
 class EscapeHatchTests(GuardTestCase):
     def test_escape_hatch_permits_sanctioned_primary_work(self):
         self.assertEqual(
