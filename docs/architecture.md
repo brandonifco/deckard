@@ -109,6 +109,52 @@ tests.
 A genuine exception is opted into per line with `// deckard:allow-nondeterminism <reason>`
 and must be justified in the PR. Diagnostics may need it. Rules resolution never does.
 
+## Dependency resolution and build reconstruction
+
+Central package management (`Directory.Packages.props`) pins every direct package
+version once. `RestorePackagesWithLockFile` (`Directory.Build.props`) goes one step
+further: each project restores from its own committed `packages.lock.json`, and
+`./scripts/validate.sh` restores in locked mode (`--locked-mode`), which fails the
+build the moment a fresh resolution would pick a different transitive version than the
+committed lock file says — loudly, in CI, instead of drifting in silently (#43).
+
+Adding, removing, or upgrading a package changes what the lock files should say.
+Regenerate them and commit the result:
+
+```
+dotnet restore Deckard.slnx --force-evaluate
+```
+
+NuGet's lock-file writer does not add the trailing newline this repo's `.editorconfig`
+requires, and rewrites every lock file on each `--force-evaluate` run regardless of
+whether its content changed. `./scripts/validate.sh` (`text-hygiene`) names any lock file
+missing one — add a trailing newline to each file it lists before committing.
+
+A locked-mode failure that was **not** caused by an intentional dependency change means
+restore resolved something differently with no corresponding source change — investigate
+before regenerating over it.
+
+### This pins resolution, not the build
+
+The SDK is pinned to an exact patch (`global.json`, `rollForward: disable`), CI runs a
+pinned OS image rather than the rolling `ubuntu-latest`, and locked-mode restore turns a
+silent transitive version change into a build failure. That is real and load-bearing.
+
+It is **not** a claim that compiling this repository on an arbitrary future machine, at
+an arbitrary future time, reproduces byte-identical binaries. NuGet packages and feeds
+can still be delisted or become unreachable, the OS and toolchain underneath the pinned
+SDK are not pinned, and nothing here verifies that the compiler's own `Deterministic`
+output is bit-for-bit stable across host environments. Byte-identical build
+reconstruction is not attempted and is not claimed.
+
+**Rules execution determinism** — the invariant in the Determinism section above, that
+the same compiled engine given the same seed and the same ordered decisions produces the
+same outcome and event history — is a different, narrower promise, and it is the one this
+project fully enforces. It rests on `IRandomSource`, ordering discipline, and the absence
+of ambient inputs (`tools/repo-checks.py --only determinism`), none of which require
+rebuilding an identical binary years from now. Losing build reproducibility does not
+weaken it.
+
 ## Randomness layering
 
 ```

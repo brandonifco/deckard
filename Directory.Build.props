@@ -16,6 +16,13 @@
     <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
     <InvariantGlobalization>true</InvariantGlobalization>
     <NoWarn />
+    <!-- Each project restores from its own committed packages.lock.json rather than
+         letting NuGet re-resolve transitive versions on every restore. validate.sh
+         restores in locked mode, which fails the build the moment resolution would
+         differ from the committed lock file, instead of drifting silently (#43). See
+         docs/architecture.md, "Dependency resolution and build reconstruction", for the
+         regeneration command and what this does and does not promise. -->
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
   </PropertyGroup>
 
   <PropertyGroup>

@@ -52,7 +52,10 @@ tools/source-slice.py --printed-pages 44-47 --expect "Edge Action"
 1. **Determinism.** Same rules version + same initial state + same seed + same ordered
    decisions ⇒ same outcomes and same ordered event history. No ambient randomness, no
    ambient clock, no order-dependent iteration, no floating point for discrete rules.
-   Enforced by `tools/repo-checks.py`.
+   Enforced by `tools/repo-checks.py`. This is a promise about **rules execution**, not
+   about byte-identical **build reconstruction** on some arbitrary future machine — the
+   two are distinct and only the first is claimed. See `docs/architecture.md`,
+   "Dependency resolution and build reconstruction".
 2. **Fail visibly.** An unsupported or unresolved mechanic must never do nothing, return
    a default, skip an effect, substitute a similar rule, or invent a value. It returns an
    explicit unresolved result. See `docs/decisions/0004-unresolved-rule-taxonomy.md`.

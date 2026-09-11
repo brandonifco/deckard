@@ -45,7 +45,9 @@ permissions:
 
 jobs:
   rules-conformance-gate:
-    runs-on: ubuntu-latest
+    # Pinned, not the rolling `ubuntu-latest` alias -- see build-and-test.yml for why
+    # tracking a moving image is avoided repo-wide (#43).
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Checkout

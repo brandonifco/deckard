@@ -139,8 +139,24 @@ else
 fi
 
 # ------------------------------------------------------------------- restore
+# Locked mode (RestorePackagesWithLockFile in Directory.Build.props) restores exactly
+# the versions committed in each project's packages.lock.json and fails the moment a
+# fresh resolution would pick something else -- an added, removed, or upgraded package,
+# or a corrupted/edited lock file -- instead of a transitive version drifting in quietly
+# (#43). See docs/architecture.md, "Dependency resolution and build reconstruction".
 step "Restore"
-run "dotnet restore" dotnet restore "$SOLUTION" || true
+if dotnet restore "$SOLUTION" --locked-mode; then
+  printf '%sok%s   dotnet restore --locked-mode\n' "$GREEN" "$OFF"
+else
+  fail "dotnet restore --locked-mode"
+  echo "     The committed packages.lock.json files don't match what restore resolves" >&2
+  echo "     today. If you deliberately added, removed, or upgraded a package, that is" >&2
+  echo "     expected -- regenerate the lock files and commit them:" >&2
+  echo "         dotnet restore $SOLUTION --force-evaluate" >&2
+  echo "     then re-run this script. If you did not touch a dependency, something else" >&2
+  echo "     changed resolution (a moved or delisted package version, a feed change) --" >&2
+  echo "     investigate before regenerating over it." >&2
+fi
 
 # -------------------------------------------------------------------- format
 step "Format"
