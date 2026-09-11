@@ -11,7 +11,9 @@ things are tested here that are easy to get wrong:
 from __future__ import annotations
 
 import importlib.util
+import shutil
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -400,6 +402,107 @@ class PackagesLockFileTests(unittest.TestCase):
             GOOD, ["src/Deckard.Rules/Resolution/DicePoolRoll.cs"], no_labels
         )
         self.assertIn("Rules conformance", " ".join(failures))
+
+
+class RulesSurfaceClassificationTests(unittest.TestCase):
+    """Issue #89: pr-policy.py no longer holds its own RULES_PATHS tuple -- rules_files_in
+    asks tools/lib/rules-surface.sh (via its --classify mode) instead of matching a local
+    copy. This is the representative classification set the Issue's acceptance criteria
+    name explicitly: one file under each rules-surface directory, the pinned source
+    manifest, packages.lock.json in each of the four project directories (Issue #86's
+    exclusion), and a non-rules file -- checked both together, in the single call
+    pr-policy.py itself makes, and individually.
+    """
+
+    RULES_SURFACE_FILES = [
+        ".github/source-manifest.json",
+        "src/Deckard.Rules/DicePoolRoll.cs",
+        "src/Deckard.Data/Skills.json",
+        "tests/Deckard.Rules.Tests/DicePoolRollTests.cs",
+        "tests/Deckard.Data.Tests/SkillsTests.cs",
+    ]
+
+    LOCK_FILES = [
+        "src/Deckard.Rules/packages.lock.json",
+        "src/Deckard.Data/packages.lock.json",
+        "tests/Deckard.Rules.Tests/packages.lock.json",
+        "tests/Deckard.Data.Tests/packages.lock.json",
+    ]
+
+    NON_RULES_FILES = ["tools/foo.py", "docs/bar.md"]
+
+    def test_full_classification_set_in_one_call(self):
+        """The whole representative set, in one rules_files_in() call -- exactly how
+        pr-policy.py itself uses it -- must return only the rules-surface entries, in
+        their original order, with the lock files and non-rules files excluded."""
+        changed = self.RULES_SURFACE_FILES + self.LOCK_FILES + self.NON_RULES_FILES
+        self.assertEqual(pr_policy.rules_files_in(changed), self.RULES_SURFACE_FILES)
+
+    def test_each_rules_surface_file_alone_classifies_as_rules_work(self):
+        for path in self.RULES_SURFACE_FILES:
+            with self.subTest(path=path):
+                self.assertEqual(pr_policy.rules_files_in([path]), [path])
+
+    def test_each_lock_file_alone_is_excluded(self):
+        for path in self.LOCK_FILES:
+            with self.subTest(path=path):
+                self.assertEqual(pr_policy.rules_files_in([path]), [])
+
+    def test_each_non_rules_file_alone_is_excluded(self):
+        for path in self.NON_RULES_FILES:
+            with self.subTest(path=path):
+                self.assertEqual(pr_policy.rules_files_in([path]), [])
+
+
+class SingleEditPropagationTests(unittest.TestCase):
+    """Issue #89's central acceptance criterion, and the test that would have caught the
+    original drift: a change to the rules-surface directory definition in
+    tools/lib/rules-surface.sh ALONE -- no second edit to pr-policy.py -- must be picked
+    up by rules_files_in(). Proven by actually varying the definition (a temp copy of the
+    library with a widened directory regex, with pr_policy.RULES_SURFACE_LIB monkeypatched
+    to point at it) rather than asserting the sharing in prose. Two definitions that only
+    happen to agree today, as before this Issue, would pass every other test in this file
+    and still fail the one below.
+    """
+
+    NEEDLE = "(Rules|Data)/"
+    REPLACEMENT = "(Rules|Data|Foo)/"
+    NEW_DIR_FILE = "src/Deckard.Foo/Thing.cs"
+
+    def setUp(self):
+        self.original_lib = pr_policy.RULES_SURFACE_LIB
+        self.original_text = self.original_lib.read_text(encoding="utf-8")
+        self.assertIn(
+            self.NEEDLE, self.original_text,
+            "fixture assumption broken: rules-surface.sh no longer spells the directory "
+            "regex the way this test expects to widen it",
+        )
+        self.tmpdir = tempfile.mkdtemp(prefix="deckard-rules-surface-")
+        self.addCleanup(shutil.rmtree, self.tmpdir, ignore_errors=True)
+        self.addCleanup(setattr, pr_policy, "RULES_SURFACE_LIB", self.original_lib)
+        self.addCleanup(pr_policy._classify_rules_surface.cache_clear)
+
+    def _install(self, lib_text: str) -> None:
+        lib_path = Path(self.tmpdir) / "rules-surface.sh"
+        lib_path.write_text(lib_text, encoding="utf-8")
+        pr_policy.RULES_SURFACE_LIB = lib_path
+        pr_policy._classify_rules_surface.cache_clear()
+
+    def test_control_stock_definition_does_not_classify_the_new_directory(self):
+        """Control for the test below: an unmodified copy of the real library must NOT
+        already treat src/Deckard.Foo/ as a rules surface, or the widening test would
+        pass for the wrong reason."""
+        self._install(self.original_text)
+        self.assertEqual(pr_policy.rules_files_in([self.NEW_DIR_FILE]), [])
+
+    def test_widening_the_directory_regex_alone_is_picked_up_with_no_pr_policy_edit(self):
+        """Vary ONLY the copy of tools/lib/rules-surface.sh pr-policy.py is pointed at --
+        pr-policy.py's own source is never touched -- and confirm the new directory is
+        classified as a rules surface purely as a result of that one edit."""
+        widened = self.original_text.replace(self.NEEDLE, self.REPLACEMENT, 1)
+        self.assertNotEqual(widened, self.original_text)
+        self._install(widened)
+        self.assertEqual(pr_policy.rules_files_in([self.NEW_DIR_FILE]), [self.NEW_DIR_FILE])
 
 
 class LinkedIssueCodeFenceTests(unittest.TestCase):

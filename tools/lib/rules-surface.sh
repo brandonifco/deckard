@@ -78,8 +78,19 @@ rules_surface_touched() {
 # Standalone use, for a non-bash caller (tools/rules-conformance-gate.py, tools/pr-policy.py)
 # that wants this exact logic without duplicating it: reads `git diff --name-status` text
 # from stdin, exits 0 when a rules surface changed, 1 when it did not. `--print-excluded-
-# basenames` instead prints the exclusion list above, one name per line, for a caller
-# (tools/pr-policy.py) that needs the list itself rather than a single yes/no verdict.
+# basenames` instead prints the exclusion list above, one name per line, for a caller that
+# needs the list itself rather than a single yes/no verdict.
+#
+# `--classify` (Issue #89) is for a caller that holds a flat list of plain paths -- no
+# status column, no rename pairs -- such as `gh pr view --json files`, and wants to know
+# WHICH of them are a rules surface rather than re-implementing rules_surface_path_matches
+# itself. It reads one path per line from stdin and echoes back only the ones that match,
+# one per line, in the same order, in a single pass -- so a caller with a large diff
+# classifies it with one subprocess call instead of one per path. This is the shape
+# tools/pr-policy.py uses: asking "which of these are a rules surface?" instead of
+# fetching the directory list and matching against it locally, which is how pr-policy.py's
+# own copy of that list drifted from this file in the first place.
+#
 # Only runs when this file is executed directly, not when it is `source`d (bash sets $0
 # to the sourcing script's own path in that case, which never equals ${BASH_SOURCE[0]}
 # here).
@@ -87,6 +98,15 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
   set -euo pipefail
   if [[ "${1:-}" == "--print-excluded-basenames" ]]; then
     printf '%s\n' "${RULES_SURFACE_EXCLUDED_BASENAMES[@]}"
+    exit 0
+  fi
+  if [[ "${1:-}" == "--classify" ]]; then
+    while IFS= read -r path; do
+      [[ -z "$path" ]] && continue
+      if rules_surface_path_matches "$path"; then
+        printf '%s\n' "$path"
+      fi
+    done
     exit 0
   fi
   input="$(cat)"

@@ -34,38 +34,43 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 RULES_SURFACE_LIB = ROOT / "tools" / "lib" / "rules-surface.sh"
 
-# Changing anything under these paths makes the PR "rules work", which means its
-# conformance section has to say what was verified against the book.
-RULES_PATHS = (
-    "src/Deckard.Rules/",
-    "src/Deckard.Data/",
-    "tests/Deckard.Rules.Tests/",
-    "tests/Deckard.Data.Tests/",
-    ".github/source-manifest.json",
-)
 
+@functools.lru_cache(maxsize=8)
+def _classify_rules_surface(changed_files: tuple[str, ...]) -> frozenset[str]:
+    """Ask tools/lib/rules-surface.sh -- the one definition of what counts as a rules
+    surface (Issue #89) -- which of `changed_files` match. The directory regex and the
+    packages.lock.json exclusion (Issue #86) live there once, via the same
+    rules_surface_path_matches this library's other consumers use for a rename-safe
+    `git diff --name-status` check; this file never sees rename pairs, only the plain
+    "path" list `gh pr view --json files` reports, but it must not keep its own copy of
+    the matching rule that produces the same verdict. `--classify` takes the whole list
+    in a single subprocess call (one path per line on stdin, matches echoed back), so a
+    large diff still costs one call rather than one per path; `lru_cache` also collapses
+    pr-policy's own two call sites (check() and the --json evidence writer) onto that one
+    call when they share the same input.
 
-@functools.lru_cache(maxsize=1)
-def _rules_surface_excluded_basenames() -> frozenset[str]:
-    """Exact basenames that live under RULES_PATHS but carry no rules content -- e.g.
-    packages.lock.json, a NuGet lock file that must sit beside the project it locks
-    (Issue #86). Fetched from tools/lib/rules-surface.sh, the one place this list is
-    defined, so this file cannot keep its own copy and let the two drift apart."""
+    A change to the directory or exclusion definitions in rules-surface.sh alone is
+    picked up here automatically -- this file holds no copy of either list to fall out
+    of step with it.
+    """
+    if not changed_files:
+        return frozenset()
     result = subprocess.run(
-        ["bash", str(RULES_SURFACE_LIB), "--print-excluded-basenames"],
+        ["bash", str(RULES_SURFACE_LIB), "--classify"],
+        input="\n".join(changed_files) + "\n",
         capture_output=True, text=True, timeout=10, check=False,
     )
     if result.returncode != 0:
         return frozenset()
-    return frozenset(line.strip() for line in result.stdout.splitlines() if line.strip())
+    return frozenset(line for line in result.stdout.splitlines() if line)
 
 
 def rules_files_in(changed_files: list[str]) -> list[str]:
-    """Changed files that are rules surface: under RULES_PATHS and not an excluded
-    basename. The directory list stays here (Issue #86 is explicit that it does not
-    change); the exclusion list is fetched, not duplicated, from rules-surface.sh."""
-    excluded = _rules_surface_excluded_basenames()
-    return [f for f in changed_files if f.startswith(RULES_PATHS) and Path(f).name not in excluded]
+    """Changed files that are a rules surface, per tools/lib/rules-surface.sh -- preserves
+    the input order (and any duplicates), matching the classifier's verdict against each
+    entry rather than re-deciding it locally."""
+    matched = _classify_rules_surface(tuple(changed_files))
+    return [f for f in changed_files if f in matched]
 
 
 # Machine-generated dependency PRs have no Issue, no behavioural claim and no agent
