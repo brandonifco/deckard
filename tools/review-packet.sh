@@ -137,7 +137,14 @@ diff_text="$(git diff -U"$CONTEXT" "$range")" || die "git diff failed for $range
 # what actually changed, which is the fact the reviewer downstream will also see.
 RULES_PATHS='^(src/Deckard\.(Rules|Data)/|tests/Deckard\.(Rules|Data)\.Tests/|\.github/source-manifest\.json$)'
 rules_touch=0
-if cut -f2- <<<"$changed_files" | grep -qE "$RULES_PATHS"; then
+# `git diff --name-status` puts a rename or a copy on ONE line: "R100<TAB>old<TAB>new"
+# (copies are "C<score>" -- same two-path shape). `cut -f2-` keeps both paths but joined
+# by the same tab, so the `^`-anchored regex above only ever tests the line's first
+# path. A rename that moves a file INTO src/Deckard.Rules (old outside, new inside) was
+# invisible here: only the "old" path anchored the line, and it isn't a rules path.
+# Splitting every remaining tab onto its own line makes each path -- old and new, or the
+# single path on an M/A/D line -- its own anchor-testable line.
+if cut -f2- <<<"$changed_files" | tr '\t' '\n' | grep -qE "$RULES_PATHS"; then
   rules_touch=1
 fi
 

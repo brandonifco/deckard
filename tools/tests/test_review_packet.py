@@ -131,6 +131,19 @@ class ReviewPacketTests(unittest.TestCase):
         self._commit(f"change on {name}")
         self._run("git", "checkout", "-q", "main")
 
+    def _branch_with_rename(self, name: str, old_relpath: str, new_relpath: str) -> None:
+        """Create `name` off the current HEAD, renaming `old_relpath` (already committed
+        on HEAD) to `new_relpath` via `git mv`. Content is untouched, so git reports this
+        as a pure rename (R100) rather than a delete+add -- the exact shape that exposed
+        the detection gap: `git diff --name-status` puts a rename on ONE line, as
+        "R100<TAB>old<TAB>new"."""
+        self._run("git", "checkout", "-q", "-b", name)
+        new_path = self.repo / new_relpath
+        new_path.parent.mkdir(parents=True, exist_ok=True)
+        self._run("git", "mv", old_relpath, new_relpath)
+        self._commit(f"rename on {name}")
+        self._run("git", "checkout", "-q", "main")
+
     # --------------------------------------------------------------------- gh stub
 
     def _stub_gh(self, issue: str, title: str, body: str) -> Path:
@@ -314,6 +327,51 @@ class ReviewPacketTests(unittest.TestCase):
         self.assertIn("YES -- rules-conformance and Codex review apply", result.stdout)
         self.assertIn("rules-conformance review", result.stdout)
         self.assertIn("Codex independent cross-vendor review", result.stdout)
+
+    def test_modification_within_rules_path_is_detected(self):
+        """Regression table row 1 (a plain `M` inside src/Deckard.Rules/) was already
+        detected before the rename fix below -- kept as the baseline the other two rows
+        are judged against."""
+        (self.repo / "src" / "Deckard.Rules").mkdir(parents=True, exist_ok=True)
+        (self.repo / "src" / "Deckard.Rules" / "Foo.cs").write_text("// v1\n", encoding="utf-8")
+        self._commit("add Foo.cs under Rules")
+        self._branch_with_change("feature", "src/Deckard.Rules/Foo.cs", "// v2\n")
+        result = self.run_script("--issue", "1", "--branch", "feature", "--base", "main",
+                                  body=RULES_BODY)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("YES -- rules-conformance and Codex review apply", result.stdout)
+
+    def test_rename_into_rules_path_is_detected(self):
+        """Regression table row 2 -- the gap this fix closes. A rename from
+        src/Deckard.Core/ into src/Deckard.Rules/ puts BOTH paths on one
+        "R100<TAB>old<TAB>new" line; only the old (non-rules) path anchored the line
+        before the fix, so this was silently reported as no rules review needed."""
+        (self.repo / "src" / "Deckard.Core").mkdir(parents=True, exist_ok=True)
+        (self.repo / "src" / "Deckard.Core" / "Foo.cs").write_text("// v1\n", encoding="utf-8")
+        self._commit("add Foo.cs under Core")
+        self._branch_with_rename("feature", "src/Deckard.Core/Foo.cs", "src/Deckard.Rules/Foo.cs")
+        result = self.run_script("--issue", "1", "--branch", "feature", "--base", "main",
+                                  body=RULES_BODY)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        # Confirms git actually reported a rename (not a delete+add) -- otherwise this
+        # test would not exercise the one-line-per-change shape the bug depended on.
+        self.assertIn("R100\tsrc/Deckard.Core/Foo.cs\tsrc/Deckard.Rules/Foo.cs", result.stdout)
+        self.assertIn("YES -- rules-conformance and Codex review apply", result.stdout)
+
+    def test_rename_out_of_rules_path_is_detected(self):
+        """Regression table row 3: a rename from src/Deckard.Rules/ to
+        src/Deckard.Core/ was already detected before the fix, since the OLD path
+        anchored the line. Kept as a regression so a future change to the detection
+        logic cannot silently flip it back."""
+        (self.repo / "src" / "Deckard.Rules").mkdir(parents=True, exist_ok=True)
+        (self.repo / "src" / "Deckard.Rules" / "Foo.cs").write_text("// v1\n", encoding="utf-8")
+        self._commit("add Foo.cs under Rules")
+        self._branch_with_rename("feature", "src/Deckard.Rules/Foo.cs", "src/Deckard.Core/Foo.cs")
+        result = self.run_script("--issue", "1", "--branch", "feature", "--base", "main",
+                                  body=RULES_BODY)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("R100\tsrc/Deckard.Rules/Foo.cs\tsrc/Deckard.Core/Foo.cs", result.stdout)
+        self.assertIn("YES -- rules-conformance and Codex review apply", result.stdout)
 
     def test_source_manifest_change_also_counts_as_rules_touching(self):
         self._branch_with_change("feature", ".github/source-manifest.json", "{}\n")
