@@ -1,3 +1,17 @@
+<!-- Target length: roughly 500-1,000 words for ordinary work. This body answers four
+     questions -- what changed, why, what was verified, what remains -- it is not an
+     engineering report.
+
+     Durable design rationale a future reader would need → an ADR (docs/decisions/).
+     Acceptance criteria and scope → the Issue, where they already are.
+     Detailed test enumeration and validation output → a generated artifact or the CI
+     run, not pasted prose here.
+
+     This is the single authority for the target length; docs/agent-team.md ("PR body
+     length") points here rather than restating the number, so the two cannot drift
+     apart. Nothing mechanical enforces the count -- see Issue #44 for why a hard
+     word-count check in pr-policy was deliberately rejected. -->
+
 ## Linked Issue
 
 Closes #
