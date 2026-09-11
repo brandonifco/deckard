@@ -125,6 +125,11 @@ Regenerate them and commit the result:
 dotnet restore Deckard.slnx --force-evaluate
 ```
 
+NuGet's lock-file writer does not add the trailing newline this repo's `.editorconfig`
+requires, and rewrites every lock file on each `--force-evaluate` run regardless of
+whether its content changed. `./scripts/validate.sh` (`text-hygiene`) names any lock file
+missing one — add a trailing newline to each file it lists before committing.
+
 A locked-mode failure that was **not** caused by an intentional dependency change means
 restore resolved something differently with no corresponding source change — investigate
 before regenerating over it.
