@@ -52,16 +52,21 @@ public sealed class Pcg32 : IRandomSource
     /// struct always has an implicit parameterless constructor that zero-initializes its
     /// fields -- reachable as <c>default(Pcg32State)</c>, <c>new Pcg32State()</c>, or a
     /// deserializer that sets fields directly -- and it cannot be suppressed or
-    /// overridden. Validating only at construction would let a zeroed state reach here
-    /// and produce a generator that silently returns the same value forever.
+    /// overridden. Validating only at construction would let an even increment reach here
+    /// unchecked, violating PCG's full-period requirement: the underlying LCG then visits
+    /// fewer than the full 2^64 states, and the generator's period collapses. The
+    /// implicit constructor's specific zeroed state is the reason the check is repeated
+    /// here rather than trusted: with state and increment both zero, 0 is a fixed point of
+    /// the LCG step, so that particular bypass would silently return the same value
+    /// forever rather than merely cycling early.
     /// </exception>
     public static Pcg32 FromState(Pcg32State state)
     {
         if ((state.Increment & 1UL) == 0UL)
         {
             throw new ArgumentException(
-                "PCG increment must be odd; an even increment produces a degenerate "
-                + "generator that silently returns the same value forever.",
+                "PCG increment must be odd; an even increment violates PCG's full-period "
+                + "requirement and collapses the generator's period.",
                 nameof(state));
         }
 
