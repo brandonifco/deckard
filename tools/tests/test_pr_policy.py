@@ -505,6 +505,94 @@ class SingleEditPropagationTests(unittest.TestCase):
         self.assertEqual(pr_policy.rules_files_in([self.NEW_DIR_FILE]), [self.NEW_DIR_FILE])
 
 
+class RulesSurfaceClassifierFailureTests(unittest.TestCase):
+    """A broken or unreachable rules-surface.sh must fail pr-policy LOUDLY, not silently
+    classify every changed file as "not a rules surface". Before this fix,
+    `_classify_rules_surface` swallowed a non-zero exit (or a missing interpreter/script,
+    or a timeout) into an empty frozenset -- inherited from #86, where an empty result was
+    safe because the subprocess only ever supplied the exclusion list. Once it supplies
+    the WHOLE classification, an empty result silently skips "Rules conformance" entirely
+    for a PR that rewrites the rules engine, and pr-policy reports PASS while doing it.
+    CLAUDE.md's "fail visibly" invariant forbids exactly this: an unresolved check must
+    never do nothing or invent a default -- doubly so in a required merge gate, where
+    silence reads as approval.
+    """
+
+    RULES_FILE = ["src/Deckard.Rules/DiceTest.cs"]
+
+    def setUp(self):
+        self.original_lib = pr_policy.RULES_SURFACE_LIB
+        self.original_timeout = pr_policy.CLASSIFY_TIMEOUT_SECONDS
+        self.tmpdir = tempfile.mkdtemp(prefix="deckard-rules-surface-broken-")
+        self.addCleanup(shutil.rmtree, self.tmpdir, ignore_errors=True)
+        self.addCleanup(setattr, pr_policy, "RULES_SURFACE_LIB", self.original_lib)
+        self.addCleanup(setattr, pr_policy, "CLASSIFY_TIMEOUT_SECONDS", self.original_timeout)
+        self.addCleanup(pr_policy._classify_rules_surface.cache_clear)
+        pr_policy._classify_rules_surface.cache_clear()
+
+    def _install_script(self, contents: str) -> Path:
+        path = Path(self.tmpdir) / "broken-rules-surface.sh"
+        path.write_text(contents, encoding="utf-8")
+        pr_policy.RULES_SURFACE_LIB = path
+        pr_policy._classify_rules_surface.cache_clear()
+        return path
+
+    def test_nonzero_exit_raises_with_the_script_path_exit_code_and_stderr(self):
+        self._install_script("#!/usr/bin/env bash\necho 'boom' >&2\nexit 3\n")
+        with self.assertRaises(pr_policy.RulesSurfaceClassifierError) as ctx:
+            pr_policy.rules_files_in(self.RULES_FILE)
+        message = str(ctx.exception)
+        self.assertIn(str(pr_policy.RULES_SURFACE_LIB), message)
+        self.assertIn("3", message)
+        self.assertIn("boom", message)
+
+    def test_nonzero_exit_does_not_report_the_pr_as_having_no_rules_files(self):
+        """The exact scenario the defect names: a PR touching src/Deckard.Rules/ must not
+        be silently treated as touching nothing when the classifier is broken."""
+        self._install_script("#!/usr/bin/env bash\nexit 1\n")
+        with self.assertRaises(pr_policy.RulesSurfaceClassifierError):
+            pr_policy.rules_files_in(self.RULES_FILE)
+        # Confirm it did not, in fact, get cached as an empty (i.e. "no rules files")
+        # result -- the exception must be the only outcome, every time.
+        with self.assertRaises(pr_policy.RulesSurfaceClassifierError):
+            pr_policy.rules_files_in(self.RULES_FILE)
+
+    def test_check_does_not_silently_pass_when_the_classifier_is_broken(self):
+        """check() must not swallow the failure into an ordinary policy failure (still a
+        reached, reportable verdict) or, worse, a silent PASS -- it must not reach a
+        verdict at all."""
+        self._install_script("#!/usr/bin/env bash\nexit 1\n")
+        with self.assertRaises(pr_policy.RulesSurfaceClassifierError):
+            pr_policy.check(GOOD, self.RULES_FILE, no_labels)
+
+    def test_missing_script_raises_naming_the_path(self):
+        pr_policy.RULES_SURFACE_LIB = Path(self.tmpdir) / "does-not-exist.sh"
+        pr_policy._classify_rules_surface.cache_clear()
+        with self.assertRaises(pr_policy.RulesSurfaceClassifierError) as ctx:
+            pr_policy.rules_files_in(self.RULES_FILE)
+        self.assertIn(str(pr_policy.RULES_SURFACE_LIB), str(ctx.exception))
+
+    def test_timeout_raises_a_clear_error_instead_of_a_stack_trace(self):
+        self._install_script("#!/usr/bin/env bash\nsleep 5\n")
+        pr_policy.CLASSIFY_TIMEOUT_SECONDS = 0.2
+        with self.assertRaises(pr_policy.RulesSurfaceClassifierError) as ctx:
+            pr_policy.rules_files_in(self.RULES_FILE)
+        message = str(ctx.exception)
+        self.assertIn(str(pr_policy.RULES_SURFACE_LIB), message)
+        self.assertIn("timed out", message)
+
+    def test_a_working_script_after_a_failure_is_not_stuck_on_a_cached_error(self):
+        """functools.lru_cache never caches a raised exception -- confirm a later, working
+        call for the SAME input is retried rather than permanently poisoned."""
+        self._install_script("#!/usr/bin/env bash\nexit 1\n")
+        with self.assertRaises(pr_policy.RulesSurfaceClassifierError):
+            pr_policy.rules_files_in(self.RULES_FILE)
+        self._install_script(
+            "#!/usr/bin/env bash\nwhile IFS= read -r p; do printf '%s\\n' \"$p\"; done\n"
+        )
+        self.assertEqual(pr_policy.rules_files_in(self.RULES_FILE), self.RULES_FILE)
+
+
 class LinkedIssueCodeFenceTests(unittest.TestCase):
     """#52: PR #51 quoted a generated packet containing "Closes #38" as evidence for
     tools/review-packet.sh, and was failed for closing two Issues. Quoted text is not a

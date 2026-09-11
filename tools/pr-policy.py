@@ -34,6 +34,26 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 RULES_SURFACE_LIB = ROOT / "tools" / "lib" / "rules-surface.sh"
 
+# A module-level constant, not a literal in the subprocess.run() call, so a test can
+# monkeypatch it down to something short and force a real subprocess.TimeoutExpired
+# without the test suite paying for the full timeout.
+CLASSIFY_TIMEOUT_SECONDS = 10
+
+
+class RulesSurfaceClassifierError(RuntimeError):
+    """tools/lib/rules-surface.sh --classify could not be run, or did not run cleanly.
+
+    This must never be swallowed into an empty classification. Before this class existed,
+    a non-zero exit here silently became "no changed file is a rules surface" -- fine
+    while this call site only fetched the (optional) exclusion list (#86), but wrong once
+    it became the WHOLE classification (#89): an empty result then means pr-policy skips
+    the "Rules conformance" requirement entirely for a PR that rewrites the rules engine,
+    and reports PASS while doing it. CLAUDE.md's "fail visibly" invariant exists exactly
+    for this shape of failure -- an unresolved check must never do nothing or invent a
+    default -- and it applies doubly here, since pr-policy is a required merge gate whose
+    silence reads as approval.
+    """
+
 
 @functools.lru_cache(maxsize=8)
 def _classify_rules_surface(changed_files: tuple[str, ...]) -> frozenset[str]:
@@ -52,16 +72,39 @@ def _classify_rules_surface(changed_files: tuple[str, ...]) -> frozenset[str]:
     A change to the directory or exclusion definitions in rules-surface.sh alone is
     picked up here automatically -- this file holds no copy of either list to fall out
     of step with it.
+
+    Raises RulesSurfaceClassifierError -- never returns a default -- when the classifier
+    itself could not be run or did not exit cleanly: a non-zero exit, a timeout, or the
+    interpreter/script being unreachable at all. lru_cache does not cache a raised
+    exception, so a later, working call is retried rather than being stuck on a cached
+    failure.
     """
     if not changed_files:
         return frozenset()
-    result = subprocess.run(
-        ["bash", str(RULES_SURFACE_LIB), "--classify"],
-        input="\n".join(changed_files) + "\n",
-        capture_output=True, text=True, timeout=10, check=False,
-    )
+    stdin_text = "\n".join(changed_files) + "\n"
+    try:
+        result = subprocess.run(
+            ["bash", str(RULES_SURFACE_LIB), "--classify"],
+            input=stdin_text, capture_output=True, text=True,
+            timeout=CLASSIFY_TIMEOUT_SECONDS, check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RulesSurfaceClassifierError(
+            f"{RULES_SURFACE_LIB} --classify timed out after {exc.timeout}s; "
+            "cannot classify changed files without it -- refusing to guess."
+        ) from exc
+    except OSError as exc:
+        # Covers FileNotFoundError (bash itself, or RULES_SURFACE_LIB, missing) and any
+        # other failure to even start the subprocess.
+        raise RulesSurfaceClassifierError(
+            f"could not run {RULES_SURFACE_LIB} --classify: {exc}"
+        ) from exc
     if result.returncode != 0:
-        return frozenset()
+        stderr = result.stderr.strip() or "(no stderr)"
+        raise RulesSurfaceClassifierError(
+            f"{RULES_SURFACE_LIB} --classify exited {result.returncode}, "
+            f"cannot classify changed files: {stderr}"
+        )
     return frozenset(line for line in result.stdout.splitlines() if line)
 
 
