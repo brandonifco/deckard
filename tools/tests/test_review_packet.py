@@ -385,15 +385,15 @@ class ReviewPacketTests(unittest.TestCase):
                        result.stdout)
         self.assertNotIn("rules-conformance review", result.stdout)
 
-    def test_rules_change_asks_for_rules_conformance_and_codex(self):
+    def test_rules_change_asks_for_rules_conformance_and_independent_verdict(self):
         self._branch_with_change("feature", "src/Deckard.Rules/Glitches.cs",
                                   "// a rule\n")
         result = self.run_script("--issue", "1", "--branch", "feature", "--base", "main",
                                   body=RULES_BODY)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("YES -- rules-conformance and Codex review apply", result.stdout)
+        self.assertIn("YES -- rules-conformance and the independent verdict", result.stdout)
         self.assertIn("rules-conformance review", result.stdout)
-        self.assertIn("Codex independent cross-vendor review", result.stdout)
+        self.assertIn("Independent verdict review", result.stdout)
 
     def test_modification_within_rules_path_is_detected(self):
         """Regression table row 1 (a plain `M` inside src/Deckard.Rules/) was already
@@ -406,7 +406,7 @@ class ReviewPacketTests(unittest.TestCase):
         result = self.run_script("--issue", "1", "--branch", "feature", "--base", "main",
                                   body=RULES_BODY)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("YES -- rules-conformance and Codex review apply", result.stdout)
+        self.assertIn("YES -- rules-conformance and the independent verdict", result.stdout)
 
     def test_rename_into_rules_path_is_detected(self):
         """Regression table row 2 -- the gap this fix closes. A rename from
@@ -423,7 +423,7 @@ class ReviewPacketTests(unittest.TestCase):
         # Confirms git actually reported a rename (not a delete+add) -- otherwise this
         # test would not exercise the one-line-per-change shape the bug depended on.
         self.assertIn("R100\tsrc/Deckard.Core/Foo.cs\tsrc/Deckard.Rules/Foo.cs", result.stdout)
-        self.assertIn("YES -- rules-conformance and Codex review apply", result.stdout)
+        self.assertIn("YES -- rules-conformance and the independent verdict", result.stdout)
 
     def test_rename_out_of_rules_path_is_detected(self):
         """Regression table row 3: a rename from src/Deckard.Rules/ to
@@ -438,14 +438,14 @@ class ReviewPacketTests(unittest.TestCase):
                                   body=RULES_BODY)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("R100\tsrc/Deckard.Rules/Foo.cs\tsrc/Deckard.Core/Foo.cs", result.stdout)
-        self.assertIn("YES -- rules-conformance and Codex review apply", result.stdout)
+        self.assertIn("YES -- rules-conformance and the independent verdict", result.stdout)
 
     def test_source_manifest_change_also_counts_as_rules_touching(self):
         self._branch_with_change("feature", ".github/source-manifest.json", "{}\n")
         result = self.run_script("--issue", "1", "--branch", "feature", "--base", "main",
                                   body=RULES_BODY)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("YES -- rules-conformance and Codex review apply", result.stdout)
+        self.assertIn("YES -- rules-conformance and the independent verdict", result.stdout)
 
     def test_context_flag_changes_the_diff_width(self):
         content = "".join(f"line{n}\n" for n in range(1, 11)).replace("line5", "CHANGED")

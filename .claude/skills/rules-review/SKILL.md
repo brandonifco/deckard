@@ -1,6 +1,6 @@
 ---
 name: rules-review
-description: Build a bounded review packet and dispatch review of a Deckard PR. Use for any PR under review, not only one that touches a Shadowrun mechanic -- the packet and the repo-steward step apply to every PR; rules-conformance and Codex are the additional rules-only steps inside it.
+description: Build a bounded review packet and dispatch review of a Deckard PR. Use for any PR under review, not only one that touches a Shadowrun mechanic -- the packet and the repo-steward step apply to every PR; rules-conformance and the independent verdict (an ordered fallback chain) are the additional rules-only steps inside it.
 ---
 
 # Reviewing a Deckard PR
@@ -44,8 +44,8 @@ The generated packet contains:
 7. every recorded **ADR**, so the reviewer does not relitigate a decision
 8. **which gates** are expected to pass, including whether the changed files touch
    `src/Deckard.Rules`, `src/Deckard.Data`, their test projects, or the source
-   manifest — the signal for whether rules-conformance and Codex apply on top of
-   repo-steward
+   manifest — the signal for whether rules-conformance and the independent verdict
+   apply on top of repo-steward
 
 This list is the packet's one definition. Do not re-enumerate its fields elsewhere —
 point here instead (see `docs/agent-team.md`, "Briefing agents", and
@@ -62,33 +62,48 @@ for documentation.
 2. **`rules-conformance`** — adversarial verification against the source packet.
    **Rules-only**: dispatch it only when the PR implements or modifies a Shadowrun
    mechanic — the packet's own "touches Rules/Data" line says so.
-3. **Codex** — independent cross-vendor verification. **Rules-only**, and only for
-   high-impact rules: dice and test mechanics, Edge semantics, core formulas, initiative
-   and action ordering, damage resolution, table transcriptions.
+3. **The independent verdict** — cross-vendor verification, produced by an ordered
+   fallback chain rather than one fixed vendor; see `AGENTS.md` and
+   [ADR 0010](../../../docs/decisions/0010-independent-verdict-fallback-chain.md) for
+   the chain itself and the reasoning, rather than a second copy of the list here.
+   **Rules-only**, and only for high-impact rules: dice and test mechanics, Edge
+   semantics, core formulas, initiative and action ordering, damage resolution, table
+   transcriptions. The verdict is recorded under a context naming whichever vendor in
+   the chain actually ran (`deckard-verdict/<reviewer>`) — never a generic label.
 
 A PR that touches no rules file stops after step 1. That is a complete review for that
 PR, not a shortened one.
+
+The chain advances only when a vendor is **unavailable**, never on disagreement — a
+recorded verdict from any vendor is binding, and a later pass elsewhere does not
+override an earlier recorded fail (`AGENTS.md`; ADR 0010). Do not retry down the chain
+hoping for a pass.
 
 ## Record the verdict (rules-only)
 
 For a PR touching a rules surface, a review is not finished when the agent reports its
 conclusion in chat — that conclusion has to become something `rules-conformance-gate`
 (the required check; see `docs/agent-team.md`, "Recording a verdict") can actually see.
-Once `rules-conformance` (and Codex, when required) conclude, record each verdict:
+Once `rules-conformance` (and the independent verdict, when required) conclude, record
+each verdict:
 
 ```bash
 tools/record-verdict.sh --sha <head-sha> --reviewer rules-conformance \
   --verdict pass --packet-sha256 <bodySha256> --pages <range> --pr <N> --rerun-gate
 ```
 
+`--reviewer` also accepts whichever link of the independent fallback chain actually ran
+— see `AGENTS.md` and ADR 0010 for the accepted values and which one to use when.
+
 Do not skip this because the review "obviously passed" — an unrecorded verdict is
 mechanically indistinguishable from a review that never happened.
 
 ## The independence rule (rules-only)
 
-**Codex does not see the first verifier's conclusions before producing its own.** Showing
-a second reviewer the first reviewer's findings destroys the independence that is the
-entire reason for asking twice. Collect both, then compare.
+**Whichever link in the independent fallback chain runs does not see the first
+verifier's conclusions before producing its own.** Showing a second reviewer the first
+reviewer's findings destroys the independence that is the entire reason for asking
+twice. Collect both, then compare.
 
 Where they disagree, the source packet decides — not seniority, not the model, not the
 implementer's explanation.

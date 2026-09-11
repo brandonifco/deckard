@@ -35,6 +35,15 @@ or if rules files changed and **Rules conformance** is empty or `N/A`.
 
 "Tests pass" is not evidence. Paste the command and its result.
 
+## Keep it to the target length
+
+The HTML comment at the top of `.github/pull_request_template.md` states the target
+length for the whole body and where overflow belongs — durable design rationale to an
+ADR, acceptance criteria to the Issue (they already live there), detailed test
+enumeration to a generated artifact or the CI run rather than pasted prose. Read that
+comment before you start writing; the number is not repeated here, so this skill cannot
+go stale against it.
+
 ## Writing it honestly
 
 **Exact behavioral claim** — what is *true now* that was not true before. One or two
