@@ -16,7 +16,8 @@ kept short on purpose: read the routed document when you need the detail, not be
      here rather than restating it; repo-checks enforces that. -->
 
 **Phase 0 — repository and source foundation.** Complete.
-**Phase 1 — deterministic randomness and the dice/test kernel.** Next.
+**Phase 1 — deterministic randomness and the dice/test kernel.** Complete.
+**Phase 2 — core test-resolution primitives.** Next.
 
 No Shadowrun mechanic is implemented yet. Do not add one outside its own Issue.
 Phase order and exit criteria: `docs/roadmap.md`.
