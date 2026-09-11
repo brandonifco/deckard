@@ -102,24 +102,32 @@ accident leaking into the replay contract.
 
 ## Existing conforming precedents
 
+Exactly three public members under `Deckard.Rules` accept an `IRandomSource` today —
+re-derived directly from source (`grep -rn "IRandomSource" src/Deckard.Rules`) rather than
+assumed, since an inventory claim in an accepted ADR is durable and a future implementer
+will trust it as written:
+
+- `DicePoolRoll.Roll` (`src/Deckard.Rules/Resolution/DicePoolRoll.cs`): the shared
+  primitive both `SimpleTest` and `OpposedTest` roll through, and also a public member a
+  caller can invoke directly without going through either. Validates `source` is
+  non-null and `dicePool` is non-negative before calling `D6.Roll` — a first-class entry
+  point in its own right, not merely covered by delegation from the two operations that
+  happen to call it.
 - `OpposedTest.Resolve` (`src/Deckard.Rules/Resolution/OpposedTest.cs`): validates
   `actorPool` and `defenderPool` are non-negative — and `source` is non-null — before
   either side's `DicePoolRoll.Roll` executes. Its own doc comment already states the
   reason: "a failure must not leave the source in a state that depends on which argument
   failed."
-- `ExtendedTest.Resolve` (`src/Deckard.Rules/Resolution/ExtendedTest.cs`): takes no
-  `IRandomSource` parameter at all. Its doc comment states "it rolls no dice and consumes
-  no randomness: refusal happens before anything is drawn" — true by construction, since
-  the type has no source to draw from.
-- `TeamworkTest.Resolve` (`src/Deckard.Rules/Resolution/TeamworkTest.cs`): same shape and
-  same reasoning as `ExtendedTest.Resolve`.
+- `SimpleTest.Resolve` (`src/Deckard.Rules/Resolution/SimpleTest.cs`): validates
+  `threshold` is non-negative — and `source` is non-null — before calling
+  `DicePoolRoll.Roll`, which in turn repeats its own validation of `source` and
+  `dicePool` before drawing anything.
 
-`SimpleTest.Resolve` (`src/Deckard.Rules/Resolution/SimpleTest.cs`) also conforms, though
-the Issue that requested this ADR did not name it: it validates `threshold` before calling
-`DicePoolRoll.Roll`, which in turn validates `dicePool` before drawing anything.
-`DicePoolRoll.Roll` itself (`src/Deckard.Rules/Resolution/DicePoolRoll.cs`), the shared
-primitive both `SimpleTest` and `OpposedTest` roll through, validates `source` and
-`dicePool` before calling `D6.Roll`.
+`ExtendedTest.Resolve` (`src/Deckard.Rules/Resolution/ExtendedTest.cs`) and
+`TeamworkTest.Resolve` (`src/Deckard.Rules/Resolution/TeamworkTest.cs`) are conforming for
+a different reason: neither takes an `IRandomSource` parameter at all. Both doc comments
+state "it rolls no dice and consumes no randomness: refusal happens before anything is
+drawn" — true by construction, since neither type has a source to draw from.
 
 ## Options considered
 
@@ -168,16 +176,18 @@ layers, neither of which is new machinery:
   internal state — the two 64-bit fields a real replay actually depends on — did not
   advance by even a partial step. `tests/Deckard.Rules.Tests/Resolution/
   RandomnessConsumptionAtomicityTests.cs` is where these live for the entry points that
-  exist today (`SimpleTest.Resolve`, `OpposedTest.Resolve` — the only two operations under
-  `Deckard.Rules` that currently accept an `IRandomSource`; see "Existing conforming
-  precedents" above for why `ExtendedTest.Resolve` and `TeamworkTest.Resolve` need no such
-  test — they take no source to advance in the first place).
+  exist today (`DicePoolRoll.Roll`, `SimpleTest.Resolve`, `OpposedTest.Resolve` — the only
+  three public members under `Deckard.Rules` that currently accept an `IRandomSource`; see
+  "Existing conforming precedents" above for why `ExtendedTest.Resolve` and
+  `TeamworkTest.Resolve` need no such test — they take no source to advance in the first
+  place).
 
-Today's `SimpleTest.Resolve` and `OpposedTest.Resolve` are both total once their arguments
-validate (ADR 0011): every unresolved-or-invalid outcome either operation can produce is
-an argument-validation exception, not an `UnresolvedTestResult` branch. The invariant and
-its enforcement tests cover both kinds identically — an `UnresolvedTestResult` return and
-a thrown `ArgumentException` are both "did not resolve," and both must leave the source
+Today's `DicePoolRoll.Roll`, `SimpleTest.Resolve`, and `OpposedTest.Resolve` are all total
+once their arguments validate (ADR 0011, extended here to a non-`Resolve`-named member for
+the same reason): every unresolved-or-invalid outcome any of the three can produce is an
+argument-validation exception, not an `UnresolvedTestResult` branch. The invariant and its
+enforcement tests cover both kinds identically — an `UnresolvedTestResult` return and a
+thrown `ArgumentException` are both "did not resolve," and both must leave the source
 untouched. A future operation that is not total (ADR 0011's union case) is bound by the
 same rule for its `UnresolvedTestResult` branches as for its validation failures.
 
