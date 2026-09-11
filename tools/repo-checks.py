@@ -11,6 +11,7 @@ Checks:
   text-hygiene   UTF-8, no BOM, LF endings, exactly one trailing newline
   determinism    no ambient randomness or ambient time in engine source
   layering       declared ProjectReference graph matches docs/architecture.md
+  core-filesystem  Deckard.Core touches no filesystem API (ADR 0001)
   source-boundary  no rulebook, no source packet, no local source path committed
   action-pins    third-party GitHub Actions pinned to immutable commit SHAs
   readonly-agents  agents claiming to be read-only carry no write-capable tool
@@ -230,6 +231,66 @@ def check_layering(root: Path) -> list[Failure]:
                     f"allowed: {sorted(allowed) or 'none'}"
                 )
             )
+    return failures
+
+
+# --------------------------------------------------------------------------------
+# Core filesystem boundary (ADR 0001; docs/architecture.md). Scoped to Deckard.Core
+# alone, not folded into BANNED_IN_ENGINE above: that list is deliberately
+# engine-wide, but Deckard.Data's structured-data loaders will legitimately read
+# files once Data exists, and a ban firing there would be wrong.
+#
+# Each pattern requires an actual call-site shape (a member access immediately
+# followed by an identifier or a call, not a bare word) so it cannot match an
+# ordinary sentence -- Core's own doc comments legitimately discuss this exact
+# boundary (see Deckard.Core.Replay.SourceBaselineId, ADR 0005). Comment-only lines
+# are skipped as a second, independent safeguard.
+# --------------------------------------------------------------------------------
+CORE_FILESYSTEM_APIS: list[tuple[str, str]] = [
+    (r"\bSystem\.IO\.[A-Za-z]", "fully-qualified System.IO member access"),
+    (r"\bFile\.[A-Za-z]", "System.IO.File"),
+    (r"\bFileInfo\b", "System.IO.FileInfo"),
+    (r"\bDirectory\.[A-Za-z]", "System.IO.Directory"),
+    (r"\bDirectoryInfo\b", "System.IO.DirectoryInfo"),
+    (r"\bFileStream\b", "System.IO.FileStream"),
+    (r"\bStreamReader\b", "System.IO.StreamReader"),
+    (r"\bStreamWriter\b", "System.IO.StreamWriter"),
+    (r"\bPath\.[A-Za-z]+\(", "System.IO.Path"),
+]
+CORE_COMMENT_LINE = re.compile(r"^\s*(?://|\*)")
+
+
+def check_core_filesystem_boundary(root: Path) -> list[Failure]:
+    """Deckard.Core may not touch the filesystem -- ADR 0001, docs/architecture.md.
+
+    CORE_COMMENT_LINE only recognises a WHOLE-LINE comment (a line whose first
+    non-whitespace characters are `//` or `*`). A trailing comment on a code line --
+    `var x = 1; // mentions File.ReadAllText` -- is still scanned in full and would be
+    caught. This is a deliberate simplification, not an oversight: correctly stripping a
+    trailing comment requires tracking string and char literals so a `//` inside one is
+    not mistaken for a comment start, which is more machinery than this check's job
+    justifies. Nothing in Core trips this today; if it ever does, move the mention to its
+    own comment line rather than teaching this check string-literal awareness.
+    """
+    failures: list[Failure] = []
+    core = root / "src" / "Deckard.Core"
+    if not core.is_dir():
+        return failures
+    for path in sorted(core.rglob("*.cs")):
+        if any(part in {"obj", "bin"} for part in path.parts):
+            continue
+        rel = path.relative_to(root)
+        for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if CORE_COMMENT_LINE.match(line):
+                continue
+            for pattern, api in CORE_FILESYSTEM_APIS:
+                if re.search(pattern, line):
+                    failures.append(
+                        Failure(
+                            f"{rel}:{lineno}: Core must not touch the filesystem "
+                            f"(ADR 0001) -- {api}  [{line.strip()[:70]}]"
+                        )
+                    )
     return failures
 
 
@@ -501,6 +562,7 @@ CHECKS = {
     "text-hygiene": check_text_hygiene,
     "determinism": check_determinism,
     "layering": check_layering,
+    "core-filesystem": check_core_filesystem_boundary,
     "source-boundary": check_source_boundary,
     "action-pins": check_action_pins,
     "readonly-agents": check_readonly_agents,

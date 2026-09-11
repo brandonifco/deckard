@@ -39,6 +39,8 @@ layer in the shipped graph: it is `IsPackable=false`, ships to nobody, and
 
 Deterministic and general. **Core must not touch** the filesystem, a UI or game engine,
 ambient time, the network, environment variables, JSON files, or the rulebook.
+`tools/repo-checks.py --only core-filesystem` enforces the filesystem prohibition today,
+by scanning Core's own source text for filesystem API call sites.
 
 Eventually: deterministic randomness primitives, dice primitives, value types, stable
 IDs, result types, state-transition primitives, event records.
@@ -75,6 +77,12 @@ The invariant:
 same rules version + same initial state + same random seed/state + same ordered decisions
     = same outcomes and the same ordered event/roll history
 ```
+
+"Rules version" here is not undefined prose: it is the four-part
+`ReplayCompatibilityIdentity` (random algorithm, ruleset revision, replay schema, source
+baseline) that [`decisions/0005-replay-compatibility-identity.md`](decisions/0005-replay-compatibility-identity.md)
+defines and `Deckard.Core.Replay` implements. See that ADR for what each component means
+and which component changes are replay-compatibility events requiring their own ADR.
 
 Forbidden in engine source, and mechanically blocked by `repo-checks.py --only determinism`:
 
