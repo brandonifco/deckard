@@ -146,13 +146,48 @@ class ReviewPacketTests(unittest.TestCase):
 
     # --------------------------------------------------------------------- gh stub
 
-    def _stub_gh(self, issue: str, title: str, body: str) -> Path:
+    def _stub_gh(self, issue: str, title: str, body: str, pr: dict | None = None) -> Path:
+        """`pr`, when given, is {lookup, number, title, url, body}: `gh pr view
+        <lookup>` succeeds and returns those fields; any other lookup fails, matching
+        real `gh`'s "no pull requests found" behavior. `pr=None` (the default) makes
+        every `gh pr view` call fail -- the normal case in this project, where packets
+        are routinely generated before a PR exists."""
         bindir = self.tmp / "bin"
         bindir.mkdir(exist_ok=True)
         body_file = self.tmp / "issue-body.md"
         body_file.write_text(body, encoding="utf-8")
         self.gh_log = self.tmp / "gh-calls.txt"
         stub = bindir / "gh"
+
+        pr_block = ""
+        if pr:
+            pr_body_file = self.tmp / "pr-body.md"
+            pr_body_file.write_text(pr["body"], encoding="utf-8")
+            pr_block = (
+                'if [[ "$1" == "pr" && "$2" == "view" ]]; then\n'
+                f'  if [[ "$3" != "{pr["lookup"]}" ]]; then\n'
+                '    echo "no pull requests found for branch" >&2\n'
+                "    exit 1\n"
+                "  fi\n"
+                '  if [[ "$*" == *"--json number"* ]]; then\n'
+                f'    printf "%s" "{pr["number"]}"\n'
+                "    exit 0\n"
+                "  fi\n"
+                '  if [[ "$*" == *"--json title"* ]]; then\n'
+                f'    printf "%s" "{pr["title"]}"\n'
+                "    exit 0\n"
+                "  fi\n"
+                '  if [[ "$*" == *"--json url"* ]]; then\n'
+                f'    printf "%s" "{pr["url"]}"\n'
+                "    exit 0\n"
+                "  fi\n"
+                '  if [[ "$*" == *"--json body"* ]]; then\n'
+                f'    cat "{pr_body_file}"\n'
+                "    exit 0\n"
+                "  fi\n"
+                "fi\n"
+            )
+
         stub.write_text(
             "#!/usr/bin/env bash\n"
             f'printf "%s\\n" "$*" >> "{self.gh_log}"\n'
@@ -170,19 +205,24 @@ class ReviewPacketTests(unittest.TestCase):
             "    exit 0\n"
             "  fi\n"
             "fi\n"
-            'echo "gh stub: unhandled invocation: $*" >&2\n'
-            "exit 1\n",
+            + pr_block
+            + 'if [[ "$1" == "pr" && "$2" == "view" ]]; then\n'
+              '  echo "no pull requests found for branch" >&2\n'
+              "  exit 1\n"
+              "fi\n"
+              'echo "gh stub: unhandled invocation: $*" >&2\n'
+              "exit 1\n",
             encoding="utf-8",
         )
         stub.chmod(stub.stat().st_mode | stat.S_IEXEC)
         return bindir
 
     def run_script(self, *args: str, issue: str = "1", title: str = "Do the thing",
-                    body: str = DEFAULT_BODY):
+                    body: str = DEFAULT_BODY, pr: dict | None = None):
         env = dict(os.environ)
         # The stub goes FIRST on PATH so the real gh is unreachable, and both token
         # variables are cleared so nothing could authenticate even if it were.
-        env["PATH"] = f"{self._stub_gh(issue, title, body)}{os.pathsep}{env.get('PATH', '')}"
+        env["PATH"] = f"{self._stub_gh(issue, title, body, pr)}{os.pathsep}{env.get('PATH', '')}"
         env.pop("GH_TOKEN", None)
         env.pop("GITHUB_TOKEN", None)
         return subprocess.run(
@@ -224,7 +264,16 @@ class ReviewPacketTests(unittest.TestCase):
         result = self.run_script("--help")
         self.assertEqual(result.returncode, 0)
         self.assertIn("review-packet.sh", result.stdout)
+        # The header comment's closing sentence. A prior version's usage() cut the sed
+        # range one line short and truncated mid-sentence; asserting only that the
+        # script name appears would not have caught that.
+        self.assertIn("never be committed.", result.stdout)
         self.assertEqual(self.gh_calls(), [])
+
+    def test_pr_flag_must_be_numeric(self):
+        result = self.run_script("--issue", "1", "--branch", "main", "--pr", "xyz")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("--pr must be numeric", result.stderr)
 
     def test_nonexistent_issue_is_refused(self):
         self._branch_with_change("feature", "src/existing.txt", "changed\n")
@@ -258,6 +307,22 @@ class ReviewPacketTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("must never be committed", result.stderr)
         self.assertFalse(out.exists())
+
+    def test_output_refusal_does_not_create_the_parent_directory(self):
+        """`realpath -m` does not require the parent to exist, so nothing forces the
+        refusal to run before an unconditional `mkdir -p` -- a prior version created
+        the directory and THEN refused, leaving a stray one behind. The previous test
+        cannot catch this: its output path's parent is the repo root, which already
+        exists either way."""
+        self._branch_with_change("feature", "src/existing.txt", "changed\n")
+        out = self.repo / "packet-drafts" / "x.md"
+        self.assertFalse(out.parent.exists())
+        result = self.run_script("--issue", "1", "--branch", "feature", "--base", "main",
+                                  "--output", str(out))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("must never be committed", result.stderr)
+        self.assertFalse(out.parent.exists(),
+                          "the refusal must not create packet-drafts/ before checking")
 
     def test_output_inside_repo_but_gitignored_is_allowed(self):
         (self.repo / ".gitignore").write_text("/ignored-packets/\n", encoding="utf-8")
@@ -402,6 +467,56 @@ class ReviewPacketTests(unittest.TestCase):
         result = self.run_script("--issue", "1", "--branch", "main", "--base", "main")
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(result.stdout, "")
+
+    def test_no_pr_found_states_the_caveat_explicitly(self):
+        """The generator only calls `gh issue view` -- it has no other way to see
+        whether a PR exists, and packets in this project are routinely built before one
+        does. The packet must say so, and must name the two repo-steward checks
+        (Closes #NNN, evidence) that do not apply without a PR body to check them
+        against, rather than silently omitting the section."""
+        self._branch_with_change("feature", "src/existing.txt", "changed\n")
+        result = self.run_script("--issue", "1", "--branch", "feature", "--base", "main")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("No open PR found for 'feature'", result.stdout)
+        self.assertIn("Closes #NNN", result.stdout)
+        self.assertIn("do NOT apply at this stage", result.stdout)
+
+    def test_explicit_pr_not_found_is_refused(self):
+        self._branch_with_change("feature", "src/existing.txt", "changed\n")
+        result = self.run_script("--issue", "1", "--branch", "feature", "--base", "main",
+                                  "--pr", "999")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("PR #999 not found", result.stderr)
+
+    def test_pr_found_by_branch_name_is_included_verbatim(self):
+        self._branch_with_change("feature", "src/existing.txt", "changed\n")
+        pr = {
+            "lookup": "feature", "number": "108", "title": "Frobnicate the widget",
+            "url": "https://github.com/example/repo/pull/108",
+            "body": "Closes #1\n\n## Tests and evidence\n\n$ ./scripts/validate.sh full\nPASS\n",
+        }
+        result = self.run_script("--issue", "1", "--branch", "feature", "--base", "main", pr=pr)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("#108 -- Frobnicate the widget", result.stdout)
+        self.assertIn("https://github.com/example/repo/pull/108", result.stdout)
+        self.assertIn("Closes #1", result.stdout)
+        self.assertIn("./scripts/validate.sh full", result.stdout)
+        self.assertNotIn("No open PR found", result.stdout)
+
+    def test_pr_found_by_explicit_pr_flag(self):
+        """`--pr` looks the PR up by number instead of by branch name -- needed once a
+        branch is gone (deleted post-merge) but the PR itself still exists, which is
+        exactly the situation for demonstrating this generator against an already-merged
+        PR such as #47 or #45."""
+        self._branch_with_change("feature", "src/existing.txt", "changed\n")
+        pr = {
+            "lookup": "108", "number": "108", "title": "Frobnicate the widget",
+            "url": "https://github.com/example/repo/pull/108", "body": "Closes #1\n",
+        }
+        result = self.run_script("--issue", "1", "--branch", "feature", "--base", "main",
+                                  "--pr", "108", pr=pr)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("#108 -- Frobnicate the widget", result.stdout)
 
     def test_no_test_in_this_module_can_reach_real_gh(self):
         """Prove the containment rather than asserting it in a docstring.

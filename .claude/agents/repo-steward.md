@@ -13,14 +13,12 @@ a rules-conformance review that then has to be redone.
 
 ## Your inputs
 
-You receive a review packet built by `tools/review-packet.sh` (see
-`.claude/skills/rules-review/SKILL.md`, "Generate the packet") as a single file: the
-Issue number, title and acceptance criteria; the changed file list; a diff; a
-determinism-risk prompt; the repository's ADRs; and which gates are expected to pass,
-including whether the changed files touch `src/Deckard.Rules`, `src/Deckard.Data`,
-their test projects, or the source manifest -- the signal for whether rules-conformance
-and Codex also apply on top of you. You run on every PR, rules or not; the packet looks
-the same shape either way.
+You receive a review packet built by `tools/review-packet.sh`, as a single file. Its
+exact fields are defined once, in `.claude/skills/rules-review/SKILL.md` ("Generate the
+packet") -- read that if you need to know what the packet does or does not carry, rather
+than assuming. You run on every PR, rules or not; the packet looks the same shape
+either way, and it says explicitly when no PR exists yet for the branch -- in that case
+the "Closes #NNN" and evidence checks below do not apply, and the packet itself says so.
 
 Read the packet with `Read`. You do not need to run commands, and you deliberately
 cannot: `Bash` would make you able to edit the thing you are reviewing. If the packet is

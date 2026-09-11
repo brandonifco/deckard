@@ -59,8 +59,10 @@ Generate the packet with `tools/review-packet.sh --issue <N> --branch <ref>`. It
 fields are defined once, in `.claude/skills/rules-review/SKILL.md` ("Generate the
 packet") — that skill's packet-and-`repo-steward` step applies to every PR under review,
 not only ones that touch a Shadowrun mechanic. Restating the field list here as well
-would be a second copy of the same fact, which is exactly what
-`tools/repo-checks.py --only invariant-drift` exists to catch drifting.
+would be a second copy of the same fact, free to drift the moment either one changes —
+`tools/repo-checks.py --only invariant-drift` is not wired to this particular fact (it
+tracks the determinism ban list, the manifest's page offsets, and the source-slice page
+limit), so keeping exactly one copy is the only thing preventing that drift here.
 
 Tell the agent precisely which guide and which packet file to read. Never tell an agent
 to "search the repository for the documentation."

@@ -14,7 +14,7 @@ more, and reviews worse. Hand it the facts — for every PR, not only a rules ch
 
 ```bash
 tools/review-packet.sh --issue <N> --branch <branch-or-ref> [--base origin/main] \
-  [--context 3] [--output /tmp/packet-<N>.md]
+  [--context 3] [--output /tmp/packet-<N>.md] [--pr <N>]
 ```
 
 This is the one place the packet is assembled, so every reviewer sees the same bytes
@@ -26,21 +26,30 @@ like the source packets `tools/source-slice.py` produces.
 The generated packet contains:
 
 1. the **Issue number**, **title** and **acceptance criteria**
-2. the **changed file list**
-3. a **diff** at `--context` lines of surrounding code (default 3; narrow it for a
+2. the **associated PR**, if one exists yet — title, URL and body, so the "Closes
+   #NNN" and "Tests and evidence" checks in `repo-steward`'s charter have something to
+   check against. Packets in this project are routinely built *before* a PR exists;
+   when the lookup (by `--pr`, or by branch name otherwise) finds nothing, the packet
+   says so explicitly and states that those two checks do not apply yet, rather than
+   silently omitting the section
+3. the **changed file list**
+4. a **diff** at `--context` lines of surrounding code (default 3; narrow it for a
    mechanical change, widen it where semantics need more context)
-4. the Issue's **source locator**, verbatim (`N/A` for non-rules work; a citation for
-   rules work — fetch the actual excerpt separately with `tools/source-slice.py`, since
-   this packet never carries rulebook text)
-5. a **determinism risk prompt**
-6. every recorded **ADR**, so the reviewer does not relitigate a decision
-7. **which gates** are expected to pass, including whether the changed files touch
+5. the Issue's **source locator**, carried verbatim (`N/A` for non-rules work; a
+   citation for rules work — fetch the actual excerpt separately with
+   `tools/source-slice.py`, since this packet never carries the excerpt itself). This
+   depends on the Issue's `## Source` section actually being a locator rather than
+   pasted rulebook prose — the generator does not check that shape
+6. a **determinism risk prompt**
+7. every recorded **ADR**, so the reviewer does not relitigate a decision
+8. **which gates** are expected to pass, including whether the changed files touch
    `src/Deckard.Rules`, `src/Deckard.Data`, their test projects, or the source
    manifest — the signal for whether rules-conformance and Codex apply on top of
    repo-steward
 
 This list is the packet's one definition. Do not re-enumerate its fields elsewhere —
-point here instead (see `docs/agent-team.md`, "Briefing agents").
+point here instead (see `docs/agent-team.md`, "Briefing agents", and
+`.claude/agents/repo-steward.md`, "Your inputs").
 
 Name the exact packet file to the reviewer. Never tell an agent to search the repository
 for documentation.

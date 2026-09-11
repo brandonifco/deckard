@@ -4,12 +4,19 @@
 #   tools/review-packet.sh --issue 42 --branch issue-42-foo
 #   tools/review-packet.sh --issue 42 --branch issue-42-foo --base origin/main --context 6
 #   tools/review-packet.sh --issue 42 --branch issue-42-foo --output /tmp/packet-42.md
+#   tools/review-packet.sh --issue 42 --branch issue-42-foo --pr 108
 #
 # docs/agent-team.md and .claude/skills/rules-review/SKILL.md say never to brief a
 # verifier with "review this PR" -- hand it a bounded packet instead. A read-only
 # reviewer (repo-steward, rules-conformance) has no Bash, so it cannot produce a diff
 # for itself; this script is the one place that diff gets built, so every reviewer sees
 # the same bytes assembled the same way regardless of which PR briefed them.
+#
+# Packets in this project are routinely generated BEFORE a PR is opened -- that is the
+# normal repo-steward/rules-conformance dispatch workflow, not an edge case -- so the PR
+# section is best-effort: --pr names one explicitly, and without it the branch name is
+# looked up. Either way, when none is found the packet says so in as many words rather
+# than silently omitting the section.
 #
 # Prints the packet to stdout by default -- the tool never touches the repository
 # unless told to. Pass --output to write a file, which must resolve outside the
@@ -26,11 +33,12 @@ BRANCH=""
 BASE="origin/main"
 CONTEXT=3
 OUTPUT=""
+PR=""
 
 die() { printf 'error: %s\n' "$1" >&2; exit 1; }
 
 usage() {
-  sed -n '2,17p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '2,25p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
   exit "${1:-0}"
 }
 
@@ -41,6 +49,7 @@ while [[ $# -gt 0 ]]; do
     --base) BASE="${2:-}"; shift 2 ;;
     --context) CONTEXT="${2:-}"; shift 2 ;;
     --output) OUTPUT="${2:-}"; shift 2 ;;
+    --pr) PR="${2:-}"; shift 2 ;;
     -h|--help) usage 0 ;;
     *) die "unknown argument: $1" ;;
   esac
@@ -50,14 +59,17 @@ done
 [[ "$ISSUE" =~ ^[0-9]+$ ]] || die "--issue must be numeric, got: $ISSUE"
 [[ -n "$BRANCH" ]] || die "--branch is required -- the tip of the change (a branch name or a commit)"
 [[ "$CONTEXT" =~ ^[0-9]+$ ]] || die "--context must be a non-negative integer, got: $CONTEXT"
+[[ -z "$PR" || "$PR" =~ ^[0-9]+$ ]] || die "--pr must be numeric, got: $PR"
 command -v gh >/dev/null 2>&1 || die "gh is required"
 
 # A packet written inside the repository, tracked or not, is one `git add -A` away from
 # being committed -- the exact failure mode docs/source-handling.md exists to prevent
 # for source packets. Refuse the unsafe case rather than trusting whoever calls this to
-# remember; stdout (the default) never touches the repository at all.
+# remember; stdout (the default) never touches the repository at all. `realpath -m`
+# resolves a path whose parent doesn't exist yet without creating anything, which
+# matters here: this check must run, and be able to refuse, before any directory gets
+# created on disk. Creating the parent is deferred to the actual write, at the bottom.
 if [[ -n "$OUTPUT" ]]; then
-  mkdir -p "$(dirname "$OUTPUT")"
   abs_out="$(realpath -m "$OUTPUT")"
   case "$abs_out" in
     "$REPO_ROOT"/*)
@@ -96,6 +108,44 @@ if [[ -z "$(printf '%s' "$acceptance" | tr -d '[:space:]')" ]]; then
 fi
 
 source_section="$(section "Source")"
+
+# --------------------------------------------------------------------------- the PR
+
+# repo-steward's charter requires checking "Closes #NNN" and "Tests and evidence" --
+# both live in the PR body, which this generator has no other way to see: it only calls
+# `gh issue view`. Packets in this project are routinely built BEFORE a PR exists (the
+# normal repo-steward/rules-conformance dispatch order in docs/agent-team.md), so a
+# lookup failure here is not an error -- it means there is genuinely no PR yet, and the
+# packet says so in as many words below rather than silently omitting the section and
+# leaving the reviewer to guess whether the tool dropped something.
+pr_lookup="${PR:-$BRANCH}"
+pr_number=""
+if pr_number="$(gh pr view "$pr_lookup" --json number --jq .number 2>/dev/null)"; then
+  pr_title="$(gh pr view "$pr_lookup" --json title --jq .title 2>/dev/null)" || pr_title=""
+  pr_url="$(gh pr view "$pr_lookup" --json url --jq .url 2>/dev/null)" || pr_url=""
+  pr_body="$(gh pr view "$pr_lookup" --json body --jq .body 2>/dev/null)" || pr_body=""
+elif [[ -n "$PR" ]]; then
+  die "PR #$PR not found via gh pr view"
+fi
+
+if [[ -n "$pr_number" ]]; then
+  pr_section="#$pr_number -- $pr_title
+$pr_url
+
+$pr_body"
+else
+  pr_section="No open PR found for '$pr_lookup'.
+
+This packet was generated before a PR exists, which is the normal case for
+repo-steward and rules-conformance dispatch in this project (see docs/agent-team.md,
+'Briefing agents'). Two checks in repo-steward's charter do NOT apply at this stage --
+not because they were skipped, but because there is no PR body yet to check them
+against:
+  - Does the PR close exactly one Issue with Closes #NNN?
+  - Does 'Tests and evidence' contain real commands, not just 'tests pass'?
+Regenerate this packet with --pr N once the PR exists, or re-run without --pr once one
+has been opened for this branch -- the lookup above will then find it automatically."
+fi
 
 # ------------------------------------------------------------------------------- refs
 
@@ -186,6 +236,10 @@ Never brief a reviewer with "review this PR" -- this file is the packet instead.
 docs/agent-team.md ("Briefing agents") and .claude/skills/rules-review/SKILL.md.
 ================================================================================
 
+## Pull request
+
+$pr_section
+
 ## Acceptance criteria (Issue #$ISSUE)
 
 $acceptance
@@ -194,8 +248,12 @@ $acceptance
 
 ${source_section:-N/A}
 
-Non-N/A? Fetch the actual excerpt separately with tools/source-slice.py -- this packet
-never carries rulebook text. N/A means Issue #$ISSUE is not rules work.
+The line above is the Issue's ## Source section, carried verbatim -- never the excerpt
+itself. N/A means Issue #$ISSUE is not rules work; otherwise, fetch the actual excerpt
+separately with tools/source-slice.py. This holds as long as that section is actually a
+locator and not pasted rulebook prose -- this script does not check that shape (only
+new-issue.sh's page-number check does, and only at filing time), so verify it yourself
+if this is rules work.
 
 ## Changed files
 
@@ -228,6 +286,7 @@ EOF
 )"
 
 if [[ -n "$OUTPUT" ]]; then
+  mkdir -p "$(dirname "$OUTPUT")"
   printf '%s\n' "$packet" > "$OUTPUT"
   printf 'wrote %s  (%d files changed)\n' "$OUTPUT" "$(wc -l <<<"$changed_files")" >&2
 else
