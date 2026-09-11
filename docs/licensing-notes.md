@@ -1,17 +1,18 @@
 # Licensing notes
 
-Factual notes and open questions. **Nothing here is legal advice or a legal conclusion.**
-Distribution and licensing are Brandon's decisions and have not been made.
+Factual notes on the repository's licensing and distribution posture. **Nothing
+here is legal advice or a legal conclusion.**
 
 ## Current state
 
 - The repository is **public**.
-- **No license file has been added.** Under default copyright, a public repository
-  without a license grants no rights to anyone to use, copy, modify or distribute its
-  contents. "Publicly visible" and "openly licensed" are different things, and this
-  repository is currently the first without being the second.
-- No license was chosen automatically, and none should be added without Brandon
-  explicitly deciding to.
+- The repository is licensed under **Apache License, Version 2.0** (`LICENSE`).
+- `NOTICE` states that the Apache-2.0 grant does not extend to `Deckard.Data`, and
+  carries the rightsholder attributions and unaffiliated-project statement also
+  reproduced below.
+- This posture was decided by Brandon and is recorded in
+  [`docs/decisions/0009-licensing-and-distribution-posture.md`](decisions/0009-licensing-and-distribution-posture.md).
+  That ADR is the decision record; this file states the resulting facts.
 
 ## What is not in this repository
 
@@ -31,31 +32,36 @@ mechanically. `docs/source-handling.md` describes it in full.
 
 "Deckard" is a neutral internal codename chosen deliberately so the repository does not
 carry a Shadowrun trademark in its name. Any public-facing product name is a separate
-decision Brandon has not made.
+decision Brandon has not made, and is recorded as explicitly still open in
+[ADR 0009](decisions/0009-licensing-and-distribution-posture.md).
 
-## Open questions
+## Settled posture
 
-These are unresolved, and being public makes them live rather than hypothetical:
+The five questions this file previously listed as open are answered in
+[ADR 0009](decisions/0009-licensing-and-distribution-posture.md):
 
-1. **Should this repository have a license at all, and which one?** Until it does, it is
-   visible but not usable by others.
-2. **What is the intended relationship between the engine code and the rules it
-   implements?** Game mechanics and the expression of them are treated differently under
-   copyright law, and that distinction has been litigated. This project has not analysed
-   where its structured rules data falls, and an agent must not decide it.
-3. **Does distributing structured rules data differ from distributing the engine?** A
-   corpus of transcribed tables is a different artifact from an algorithm, and may
-   warrant a different answer.
-4. **Is there an applicable community-content or fan-content policy** from the publisher,
-   and does this project want to operate inside it?
-5. **Does the repository want to stay public** during development, given that questions
-   1–4 are open?
+1. The repository has a license: Apache-2.0, covering the engine.
+2. The engine and the rules it implements are separate artifacts, licensed
+   separately; implementing a mechanic is not a claim over it.
+3. Distributing structured rules data does differ from distributing the engine:
+   `Deckard.Data` is explicitly excluded from the Apache-2.0 grant (`NOTICE`).
+4. No applicable publisher community-content policy has been identified, and this
+   project does not rely on one existing. Commercial distribution requires a
+   separately negotiated licence and review by counsel.
+5. The repository stays public; the source boundary above is enforced
+   mechanically regardless of visibility.
 
-## Guidance until those are answered
+Still explicitly open, per ADR 0009: any public-facing product name, and whether a
+commercial product happens at all.
 
-- Do not add a license file.
-- Do not publish packages or releases.
-- Do not commit rulebook text, and keep short identifying phrases short: a table title
-  or a mechanic's name is necessary for provenance; a paragraph of rules prose is not.
-- Raise anything that looks like it changes the answers with Brandon rather than
-  resolving it in a PR.
+## Guidance going forward
+
+- Do not treat `Deckard.Data` as covered by the Apache-2.0 grant in `LICENSE` — it
+  is explicitly excluded; see `NOTICE` and ADR 0009.
+- Do not commit rulebook text, and keep short identifying phrases short: a table
+  title or a mechanic's name is necessary for provenance; a paragraph of rules
+  prose is not.
+- Do not publish packages or releases, initiate commercial distribution, or treat
+  "Deckard" as a product name — these remain Brandon's decisions; see ADR 0009.
+- Raise anything that looks like it changes the posture in ADR 0009 with Brandon
+  rather than resolving it in a PR.

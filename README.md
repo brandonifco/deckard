@@ -42,9 +42,11 @@ The source is pinned by SHA-256. A wrong printing, a different scan or a corrupt
 fails loudly and extracts nothing. There is deliberately no way to point the tool at a
 different document. See [`docs/source-handling.md`](docs/source-handling.md).
 
-**Licensing:** this repository is public but carries **no license**, which means default
-copyright and no grant to anyone. That is an open question, not a settled position — see
-[`docs/licensing-notes.md`](docs/licensing-notes.md).
+**Licensing:** this repository is licensed under **Apache License, Version 2.0**
+(`LICENSE`). `NOTICE` states that the grant does not extend to `Deckard.Data`. See
+[`docs/licensing-notes.md`](docs/licensing-notes.md) and
+[ADR 0009](docs/decisions/0009-licensing-and-distribution-posture.md) for the decision
+record.
 
 ## Layout
 

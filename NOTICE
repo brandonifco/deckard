@@ -1,0 +1,36 @@
+Deckard
+Copyright 2026 Brandon (brandonifco)
+
+This product is licensed under the Apache License, Version 2.0. See the LICENSE
+file for the full license text.
+
+Scope of the license
+---------------------
+
+The Apache-2.0 license does not extend to `Deckard.Data` (the structured
+Shadowrun, Sixth World rules data under `src/Deckard.Data`). No license is
+granted to `Deckard.Data` by this repository or by the LICENSE file. See
+docs/decisions/0009-licensing-and-distribution-posture.md for the decision
+record.
+
+No rulebook content is distributed
+-----------------------------------
+
+This repository does not distribute the Shadowrun, Sixth World rulebook in any
+form: not the file itself, not extracted chapters or pages, not substantial
+verbatim rulebook text. See docs/source-handling.md.
+
+Rightsholder attribution
+-------------------------
+
+The Shadowrun, Sixth World rulebook is copyright 2019 The Topps Company, Inc.
+Shadowrun and Matrix are trademarks of The Topps Company, Inc. Catalyst Game
+Labs is a trademark of InMediaRes Productions, LLC.
+
+Deckard is an unaffiliated personal project and claims no association with The
+Topps Company, Inc.; Catalyst Game Labs; InMediaRes Productions, LLC; or any of
+their products.
+
+Nothing in this file is legal advice or a legal conclusion. See
+docs/licensing-notes.md and
+docs/decisions/0009-licensing-and-distribution-posture.md.
