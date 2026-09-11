@@ -21,11 +21,12 @@ public static class SimpleTest
     /// <exception cref="ArgumentNullException"><paramref name="source"/> is null.</exception>
     /// <exception cref="ArgumentOutOfRangeException">
     /// <paramref name="dicePool"/> or <paramref name="threshold"/> is negative. The book's
-    /// printed Threshold Guidelines table (same pages) runs 1-7, but nothing in the source
-    /// packet restricts a threshold's valid domain to that table's suggested values, so a
-    /// threshold of exactly 0 is accepted -- it simply always succeeds, since any
-    /// non-negative hit count meets or beats it. A negative threshold has no reading in
-    /// the source at all and is rejected as invalid input, not as an unresolved rule.
+    /// printed Threshold Guidelines table (p. 36 / PDF p. 37) runs 1-7, but nothing in the
+    /// source packet restricts a threshold's valid domain to that table's suggested
+    /// values, so a threshold of exactly 0 is accepted: that is simply what the &gt;=
+    /// formula above computes for it, not a claim the book states. A negative threshold
+    /// has no reading in the source at all and is rejected as invalid input, not as an
+    /// unresolved rule.
     /// </exception>
     public static SimpleTestResult Resolve(IRandomSource source, int dicePool, int threshold)
     {

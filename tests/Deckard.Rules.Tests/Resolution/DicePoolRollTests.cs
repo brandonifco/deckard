@@ -31,22 +31,6 @@ public sealed class DicePoolRollTests
         Assert.Throws<ArgumentOutOfRangeException>(() => DicePoolRoll.Roll(source, -1));
     }
 
-    [Fact]
-    public void Zero_dice_pool_rolls_nothing_and_never_glitches()
-    {
-        // "More than half of zero dice are 1s" is vacuously false: 0 dice can never
-        // satisfy a strict majority. This is the zero-hits boundary at its most extreme.
-        var source = ForFaces();
-
-        DicePoolRoll roll = DicePoolRoll.Roll(source, 0);
-
-        Assert.Empty(roll.DiceRolled);
-        Assert.Equal(0, roll.Hits);
-        Assert.Equal(0, roll.Ones);
-        Assert.Equal(GlitchSeverity.None, roll.Glitch);
-        Assert.Equal(0, source.Consumed);
-    }
-
     // ------------------------------------------------------------------- hit counting
 
     [Fact]

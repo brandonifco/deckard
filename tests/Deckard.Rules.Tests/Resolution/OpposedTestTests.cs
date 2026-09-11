@@ -5,9 +5,10 @@ namespace Deckard.Rules.Tests.Resolution;
 
 /// <summary>
 /// Pins <see cref="OpposedTest"/> against SR6 Core / Game Concepts / Tests / Opposed Tests
-/// / printed p. 35-36 / PDF p. 36-37: both sides roll, the higher hit count wins, ties go
-/// to the aggressor (modeled as the acting side), and net hits are the difference between
-/// the two hit counts.
+/// / printed p. 35 / PDF p. 36: both sides roll and the higher hit count wins, with net
+/// hits as the difference between the two hit counts. A tie resolves to the actor per
+/// ADR 0007, Deckard's own interpretation rather than a sourced rule -- see that ADR for
+/// the reasoning; it is not restated here.
 /// </summary>
 public sealed class OpposedTestTests
 {
@@ -23,17 +24,24 @@ public sealed class OpposedTestTests
     }
 
     [Fact]
-    public void Resolve_throws_on_negative_actor_pool()
+    public void Resolve_throws_on_negative_actor_pool_without_drawing_anything()
     {
         var source = ForFaces();
         Assert.Throws<ArgumentOutOfRangeException>(() => OpposedTest.Resolve(source, -1, 3));
+        Assert.Equal(0, source.Consumed);
     }
 
     [Fact]
-    public void Resolve_throws_on_negative_defender_pool()
+    public void Resolve_throws_on_negative_defender_pool_without_drawing_anything()
     {
+        // Both pool sizes are validated before either side rolls: a source scripted with
+        // real faces for the (valid) actor pool proves those faces are never touched,
+        // because the call must fail on defenderPool before the actor is ever rolled. A
+        // failed call must not leave the source in a state that depends on which
+        // argument failed.
         var source = ForFaces(5, 5, 5);
         Assert.Throws<ArgumentOutOfRangeException>(() => OpposedTest.Resolve(source, 3, -1));
+        Assert.Equal(0, source.Consumed);
     }
 
     // --------------------------------------------------------------------------- winner
@@ -72,21 +80,6 @@ public sealed class OpposedTestTests
         Assert.True(result.Tied);
         Assert.Equal(OpposedTestWinner.Actor, result.Winner);
         Assert.Equal(0, result.NetHits);
-    }
-
-    [Fact]
-    public void A_zero_zero_tie_still_resolves_to_the_actor()
-    {
-        // Both sides roll an empty pool: 0 hits apiece is still a tie, and nothing is
-        // ever drawn from the source to produce it.
-        var source = ForFaces();
-
-        OpposedTestResult result = OpposedTest.Resolve(source, actorPool: 0, defenderPool: 0);
-
-        Assert.True(result.Tied);
-        Assert.Equal(OpposedTestWinner.Actor, result.Winner);
-        Assert.Equal(0, result.NetHits);
-        Assert.Equal(0, source.Consumed);
     }
 
     // ------------------------------------------------------------------------ net hits

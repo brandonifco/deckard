@@ -4,11 +4,25 @@ namespace Deckard.Rules.Resolution;
 
 /// <summary>
 /// Which side of an <see cref="OpposedTest"/> won.
-/// SR6 Core / Game Concepts / Tests / Opposed Tests / printed p. 35-36 / PDF p. 36-37.
 /// </summary>
 public enum OpposedTestWinner
 {
-    /// <summary>The acting side -- the one written first in the test, e.g. "Stealth + Agility" of "Stealth + Agility vs. Perception + Intuition".</summary>
+    /// <summary>
+    /// No winner has been determined. Never the value of a resolved
+    /// <see cref="OpposedTestResult.Winner"/> -- exists only so an uninitialized
+    /// (<see langword="default"/>) enum value reads as "not decided" rather than
+    /// silently reading as a real outcome (CLAUDE.md's fail-visibly invariant).
+    /// <see cref="GlitchSeverity.None"/> makes the same choice for the same reason.
+    /// </summary>
+    Undetermined = 0,
+
+    /// <summary>
+    /// The acting side -- the one written first in the test's notation, e.g. "Stealth +
+    /// Agility" of "Stealth + Agility vs. Perception + Intuition" (printed p. 36 / PDF
+    /// p. 37). Also the side a tie resolves to; see ADR 0007
+    /// (docs/decisions/0007-opposed-test-tie-break-interpretation.md) for why that is
+    /// Deckard's interpretation and not a sourced rule.
+    /// </summary>
     Actor,
 
     /// <summary>The resisting side -- written second, e.g. "Perception + Intuition" above.</summary>
@@ -16,40 +30,41 @@ public enum OpposedTestWinner
 }
 
 /// <summary>
-/// SR6 Core / Game Concepts / Tests / Opposed Tests / printed p. 35-36 / PDF p. 36-37: two
-/// parties roll dice pools and compare hits. The higher hit count wins; the difference
-/// between the two hit counts is net hits. Ties go to the aggressor -- modeled here as the
-/// acting side, matching the book's own "Acting player's skill and attribute" /
-/// "Defending player's skill and attribute" captions for the two halves of an Opposed
-/// test's written notation.
+/// SR6 Core / Game Concepts / Tests / Opposed Tests / printed p. 35 / PDF p. 36: two
+/// parties roll dice pools and compare hits; the higher hit count wins; the difference
+/// between the two hit counts is net hits. See ADR 0007 for how a tie (equal hits) is
+/// resolved -- the book hedges that rule enough that Deckard's tie-break is documented
+/// there as a deliberate interpretation, not restated here as settled fact.
 /// </summary>
 public static class OpposedTest
 {
     /// <summary>
     /// Rolls both sides' dice pools and resolves the Opposed test between them. The actor
     /// rolls first, then the defender -- an explicit, fixed draw order (ADR 0006), chosen
-    /// to match the order the book itself writes an Opposed test in
-    /// ("Stealth + Agility vs. Perception + Intuition", acting side first).
+    /// to match the order the book itself writes an Opposed test in ("Stealth + Agility
+    /// vs. Perception + Intuition", printed p. 36 / PDF p. 37, acting side first).
     /// </summary>
     /// <exception cref="ArgumentNullException"><paramref name="source"/> is null.</exception>
     /// <exception cref="ArgumentOutOfRangeException">
-    /// <paramref name="actorPool"/> or <paramref name="defenderPool"/> is negative.
+    /// <paramref name="actorPool"/> or <paramref name="defenderPool"/> is negative. Both
+    /// are validated before either side is rolled, so a rejected call never advances
+    /// <paramref name="source"/> -- a failure must not leave the source in a state that
+    /// depends on which argument failed.
     /// </exception>
     public static OpposedTestResult Resolve(IRandomSource source, int actorPool, int defenderPool)
     {
         ArgumentNullException.ThrowIfNull(source);
+        ArgumentOutOfRangeException.ThrowIfNegative(actorPool);
+        ArgumentOutOfRangeException.ThrowIfNegative(defenderPool);
 
         DicePoolRoll actor = DicePoolRoll.Roll(source, actorPool);
         DicePoolRoll defender = DicePoolRoll.Roll(source, defenderPool);
 
         bool tied = actor.Hits == defender.Hits;
-        // The book gives a tie to the aggressor by default (printed p. 35 / PDF p. 36,
-        // modeled here as the acting side): the acting side wins outright on a tie, not
-        // just "counts as not losing", and NetHits is 0 in that case. The book also
-        // notes that default can be overridden when a specific effect needs net hits to
-        // trigger -- a downstream concern this Issue's Non-goals exclude (no
-        // combat/damage effects). A tie already reports 0 net hits, so nothing here
-        // needs to model that override directly.
+        // ADR 0007: ties resolve to the actor by deliberate interpretation, not because
+        // the book names the actor as "the aggressor" -- it never defines that term. This
+        // keeps Resolve total (every call produces a winner) at the cost of an outcome the
+        // book does not itself pin down for the tied case.
         OpposedTestWinner winner = actor.Hits >= defender.Hits
             ? OpposedTestWinner.Actor
             : OpposedTestWinner.Defender;
@@ -68,7 +83,11 @@ public sealed class OpposedTestResult
     /// <summary>The resisting side's dice pool, with its hits, ones, and glitch severity.</summary>
     public DicePoolRoll Defender { get; }
 
-    /// <summary>Which side won. Equal hits resolve to <see cref="OpposedTestWinner.Actor"/>.</summary>
+    /// <summary>
+    /// Which side won -- never <see cref="OpposedTestWinner.Undetermined"/> for a
+    /// resolved result. Equal hits resolve to <see cref="OpposedTestWinner.Actor"/>
+    /// per ADR 0007.
+    /// </summary>
     public OpposedTestWinner Winner { get; }
 
     /// <summary><see langword="true"/> when both sides rolled the same number of hits.</summary>

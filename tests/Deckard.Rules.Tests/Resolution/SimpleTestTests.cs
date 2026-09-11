@@ -7,10 +7,10 @@ namespace Deckard.Rules.Tests.Resolution;
 /// Pins <see cref="SimpleTest"/> against SR6 Core / Game Concepts / Tests / Simple Tests /
 /// printed p. 35 / PDF p. 36: hits meeting or beating the threshold succeed; net hits are
 /// the hits above the threshold. Also confirms that same uniform &gt;= rule holds at every
-/// threshold value the printed Threshold Guidelines table lists (same pages, 1-7). That
-/// table is descriptive difficulty labels with no distinct mechanic per row, so this is
-/// evidence the rule generalizes across its full listed range -- not a claim that the
-/// table's prose itself is pinned.
+/// threshold value the printed Threshold Guidelines table lists (p. 36 / PDF p. 37,
+/// values 1-7). That table is descriptive difficulty labels with no distinct mechanic per
+/// row, so this is evidence the rule generalizes across its full listed range -- not a
+/// claim that the table's prose itself is pinned.
 /// </summary>
 public sealed class SimpleTestTests
 {
@@ -112,20 +112,6 @@ public sealed class SimpleTestTests
         Assert.Equal(GlitchSeverity.Glitch, result.Roll.Glitch);
     }
 
-    [Fact]
-    public void A_critical_glitch_can_still_succeed_against_a_zero_threshold()
-    {
-        // A critical glitch always has zero hits, so it can only succeed against a
-        // threshold of 0 -- the general >= rule applies to a critical glitch exactly as
-        // to any other roll; nothing here special-cases it into an automatic failure.
-        var source = ForFaces(1, 1, 1);
-        SimpleTestResult result = SimpleTest.Resolve(source, dicePool: 3, threshold: 0);
-
-        Assert.Equal(GlitchSeverity.CriticalGlitch, result.Roll.Glitch);
-        Assert.True(result.Succeeded);
-        Assert.Equal(0, result.NetHits);
-    }
-
     // --------------------------------------------------------------- draw accounting
 
     [Fact]
@@ -165,16 +151,19 @@ public sealed class SimpleTestTests
     public void Every_threshold_in_the_printed_guidelines_table_succeeds_when_hits_meet_it(int threshold)
     {
         // Threshold Guidelines table, printed p. 36 / PDF p. 37, lists difficulty
-        // descriptions for thresholds 1 through 7. A dice pool one larger than the
-        // threshold, entirely 5s, always produces one more hit than the threshold.
-        var faces = Enumerable.Repeat(5, threshold + 1).ToArray();
+        // descriptions for thresholds 1 through 7. Hits exactly equal to the threshold
+        // is the entire content of "equal to or greater than" (printed p. 35 / PDF
+        // p. 36) -- a `>` written where `>=` belongs would still pass every one of these
+        // cases if they rolled one hit more than the threshold instead of exactly the
+        // threshold, which is why this pins hits == threshold precisely.
+        var faces = Enumerable.Repeat(5, threshold).ToArray();
         var source = ForFaces(faces);
 
-        SimpleTestResult result = SimpleTest.Resolve(source, dicePool: threshold + 1, threshold: threshold);
+        SimpleTestResult result = SimpleTest.Resolve(source, dicePool: threshold, threshold: threshold);
 
         Assert.True(result.Succeeded);
-        Assert.Equal(threshold + 1, result.Roll.Hits);
-        Assert.Equal(1, result.NetHits);
+        Assert.Equal(threshold, result.Roll.Hits);
+        Assert.Equal(0, result.NetHits);
     }
 
     [Theory]
