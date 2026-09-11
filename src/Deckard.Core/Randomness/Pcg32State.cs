@@ -30,7 +30,7 @@ public readonly record struct Pcg32State
         if ((increment & 1UL) == 0UL)
         {
             throw new ArgumentException(
-                "PCG increment must be odd; an even increment produces a degenerate generator.",
+                "PCG increment must be odd; an even increment forfeits its full-period guarantee.",
                 nameof(increment));
         }
 
