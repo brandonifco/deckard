@@ -61,6 +61,18 @@ public static class D6
     /// draws a call makes is therefore not fixed at one; it is determined entirely by
     /// <paramref name="source"/>'s own sequence, which is what keeps it exactly
     /// reproducible under replay (ADR 0002) rather than merely usually reproducible.
+    ///
+    /// This loop terminates only if <paramref name="source"/> eventually yields an
+    /// accepted value. Every real generator does: even two consecutive rejections have
+    /// probability (4 / 2^32)^2, about 9e-19, and Deckard has no source that could rig
+    /// every draw into the rejected tail forever. A source that never yields an accepted
+    /// value is a broken source, not an unresolved dice mechanic -- so this deliberately
+    /// imposes no retry cap. An arbitrary cap would not make that case fail more visibly;
+    /// it would misreport a broken <see cref="IRandomSource"/> as a dice-roll failure,
+    /// which is worse. A test that scripts only rejected values already fails visibly
+    /// without one: <c>FixedSequenceRandomSource</c> (tests/Deckard.Testing) throws
+    /// <see cref="InvalidOperationException"/> on exhaustion rather than looping, so the
+    /// scripted source itself stops the test before this method ever could hang.
     /// </summary>
     /// <exception cref="ArgumentNullException"><paramref name="source"/> is null.</exception>
     public static int Roll(IRandomSource source)
