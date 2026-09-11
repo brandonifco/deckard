@@ -14,8 +14,10 @@ public readonly record struct Pcg32State
 
     /// <summary>
     /// The stream increment. PCG's period guarantee requires this to be odd; an even
-    /// increment does not throw inside the generator itself, it silently collapses the
-    /// period. This constructor is one of two gates against that, not the only one: a
+    /// increment does not throw inside the generator itself, it silently forfeits the
+    /// full-period guarantee -- how much period is lost depends on how many factors of
+    /// two the increment carries, from merely halved upward. This constructor is one of
+    /// two gates against that, not the only one: a
     /// struct's implicit parameterless constructor (<c>default(Pcg32State)</c>,
     /// <c>new Pcg32State()</c>) bypasses it entirely and cannot be suppressed, so
     /// <see cref="Pcg32.FromState"/> repeats the same check for whatever reaches it that
