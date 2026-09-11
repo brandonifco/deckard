@@ -12,6 +12,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -124,7 +125,7 @@ class SourceSliceTests(unittest.TestCase):
     def test_layout_mode_still_extracts(self):
         result = self.run_tool("--pages", "1", "--layout")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("extraction      : pdftotext -layout", result.stdout)
+        self.assertRegex(result.stdout, r"argv\s+: pdftotext -f 1 -l 1 -layout \S+ -")
 
     @NEEDS_PDFTOTEXT
     def test_output_file_is_written(self):
@@ -146,6 +147,92 @@ class SourceSliceTests(unittest.TestCase):
     def test_packet_warns_against_committing_it(self):
         result = self.run_tool("--pages", "1")
         self.assertIn("never commit", result.stdout.lower())
+
+    # ---------------------------------------------------------- extraction provenance
+    #
+    # Up to now source packets were convenience; from here on (see Issue #40) they are
+    # evidence a rules-conformance review is conducted against, so the header must
+    # attest to its own derivation -- not just the source PDF's hash, which extraction
+    # provenance says nothing about.
+
+    @NEEDS_PDFTOTEXT
+    def test_packet_header_carries_extraction_provenance(self):
+        result = self.run_tool("--pages", "1", "--layout")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("extractor       : pdftotext", result.stdout)
+        self.assertRegex(result.stdout, r"extractorVersion: \S+")
+        self.assertRegex(result.stdout, r"argv\s+: pdftotext -f 1 -l 1 -layout \S+ -")
+        self.assertRegex(result.stdout, r"bodySha256\s+: [0-9a-f]{64}")
+
+    @NEEDS_PDFTOTEXT
+    def test_argv_does_not_leak_the_local_source_path(self):
+        """The path is real (a tmpdir under self.tmp); only its basename may appear.
+
+        scripts/doctor.sh already refuses to print Brandon's full local path because
+        doctor output gets pasted into Issues -- packets get read and quoted from too,
+        even though they are never committed, so the same redaction applies here.
+        """
+        result = self.run_tool("--pages", "1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn(str(self.tmp), result.stdout)
+        self.assertIn(self.pdf.name, result.stdout)
+
+    @NEEDS_PDFTOTEXT
+    def test_body_sha256_in_header_matches_the_actual_extracted_body(self):
+        """bodySha256 must actually verify something, not just be present.
+
+        The header's claim is checked against an independently reproduced extraction
+        (calling the tool's own extract()/hash_body() directly), not against a second
+        read of the same subprocess output -- a test that only re-parsed its own fixture
+        would prove the field is well-formed, not that it is correct.
+        """
+        result = self.run_tool("--pages", "2")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        match = re.search(r"bodySha256\s*: ([0-9a-f]{64})", result.stdout)
+        self.assertIsNotNone(match, result.stdout)
+
+        module = self._load_tool()
+        argv = module.build_argv(self.pdf, 2, 2, False)
+        body = module.extract(argv)
+        self.assertEqual(match.group(1), module.hash_body(body))
+
+    @NEEDS_PDFTOTEXT
+    def test_regenerating_the_same_slice_reproduces_the_same_body_hash(self):
+        first = self.run_tool("--pages", "3")
+        second = self.run_tool("--pages", "3")
+        self.assertEqual(first.returncode, 0, first.stderr)
+        self.assertEqual(second.returncode, 0, second.stderr)
+        h1 = re.search(r"bodySha256\s*: ([0-9a-f]{64})", first.stdout).group(1)
+        h2 = re.search(r"bodySha256\s*: ([0-9a-f]{64})", second.stdout).group(1)
+        self.assertEqual(h1, h2)
+
+    @NEEDS_PDFTOTEXT
+    def test_different_pages_produce_different_body_hashes(self):
+        a = self.run_tool("--pages", "1")
+        b = self.run_tool("--pages", "2")
+        self.assertEqual(a.returncode, 0, a.stderr)
+        self.assertEqual(b.returncode, 0, b.stderr)
+        ha = re.search(r"bodySha256\s*: ([0-9a-f]{64})", a.stdout).group(1)
+        hb = re.search(r"bodySha256\s*: ([0-9a-f]{64})", b.stdout).group(1)
+        self.assertNotEqual(ha, hb)
+
+    def test_hash_body_changes_when_the_body_is_deliberately_altered(self):
+        """A field nothing verifies is decoration, not evidence (Issue #40).
+
+        Hermetic and unconditional -- no pdftotext required -- because the property
+        under test is hash_body() itself, not the extraction pipeline around it: a
+        single deliberately altered character must change bodySha256, and the value
+        recorded must be exactly sha256 of the body's UTF-8 bytes, not some other
+        derived quantity.
+        """
+        module = self._load_tool()
+        original = "ALPHA PAGE ONE Success Test\n"
+        altered = original.replace("Success", "Suxcess")
+        self.assertNotEqual(module.hash_body(original), module.hash_body(altered))
+        self.assertEqual(
+            module.hash_body(original),
+            hashlib.sha256(original.encode("utf-8")).hexdigest(),
+        )
 
     # ------------------------------------------------------------------ refusals
 
@@ -286,6 +373,8 @@ class SourceSliceTests(unittest.TestCase):
                 "pageNumbering": {"printedPageEqualsPdfPageMinus": 1},
             },
             first=10, last=11, layout=False, is_override=False,
+            extractor_version="24.02.0", argv_display=["pdftotext", "-f", "10", "-l", "11"],
+            body_sha256="b" * 64,
         )
         self.assertNotIn("NON-AUTHORITATIVE", header)
         self.assertIn("sourceId        : sr6-core", header)
@@ -300,6 +389,8 @@ class SourceSliceTests(unittest.TestCase):
                 "pageNumbering": {"printedPageEqualsPdfPageMinus": 1},
             },
             first=10, last=11, layout=False, is_override=True,
+            extractor_version="24.02.0", argv_display=["pdftotext", "-f", "10", "-l", "11"],
+            body_sha256="b" * 64,
         )
         self.assertIn("NON-AUTHORITATIVE", header)
 
