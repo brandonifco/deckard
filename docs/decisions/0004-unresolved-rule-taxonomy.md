@@ -2,8 +2,16 @@
 
 ## Status
 
-Accepted — 2026-09-10, at repository bootstrap. Implemented in Phase 1 or 2, whichever
-first needs to express an unresolved state.
+Superseded by [0011](0011-resolution-result-shape-totality-not-universality.md) —
+2026-09-11. Originally accepted 2026-09-10, at repository bootstrap; implemented in Phase
+1 or 2, whichever first needs to express an unresolved state.
+
+ADR 0011 replaces only this ADR's universal-union requirement — "every resolution
+operation returns a result type that is either resolved or unresolved" — with a
+per-operation totality test. The closed `UnresolvedReason` vocabulary and the rest of this
+ADR's reasoning below are carried forward unchanged; see ADR 0011 rather than treating the
+"Decision" and "Consequences" sections below as still governing which operations must
+return a union.
 
 ## Decision
 
