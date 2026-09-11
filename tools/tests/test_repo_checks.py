@@ -183,6 +183,91 @@ class LayeringTests(CheckTestCase):
         self.assertCaught(repo_checks.check_layering(self.repo.root), "Deckard.Testing declares forbidden")
 
 
+class CoreFilesystemBoundaryTests(CheckTestCase):
+    """See ADR 0005 / Issue #38: Deckard.Core may not touch the filesystem (ADR 0001)."""
+
+    def test_clean_core_source_passes(self):
+        self.repo.write(
+            "src/Deckard.Core/Replay/RandomAlgorithmId.cs",
+            "namespace Deckard.Core.Replay;\npublic readonly record struct RandomAlgorithmId(string Name);\n",
+        )
+        self.assertEqual(repo_checks.check_core_filesystem_boundary(self.repo.root), [])
+
+    def test_file_readalltext_is_caught(self):
+        self.repo.write(
+            "src/Deckard.Core/Leak.cs",
+            "var text = File.ReadAllText(path);\n",
+        )
+        self.assertCaught(
+            repo_checks.check_core_filesystem_boundary(self.repo.root), "touch the filesystem"
+        )
+
+    def test_fully_qualified_system_io_is_caught(self):
+        self.repo.write(
+            "src/Deckard.Core/Leak.cs",
+            "var text = System.IO.File.ReadAllText(path);\n",
+        )
+        self.assertCaught(
+            repo_checks.check_core_filesystem_boundary(self.repo.root), "touch the filesystem"
+        )
+
+    def test_directory_enumeration_is_caught(self):
+        self.repo.write(
+            "src/Deckard.Core/Leak.cs",
+            "foreach (var f in Directory.GetFiles(root)) { }\n",
+        )
+        self.assertCaught(
+            repo_checks.check_core_filesystem_boundary(self.repo.root), "touch the filesystem"
+        )
+
+    def test_streamreader_is_caught(self):
+        self.repo.write(
+            "src/Deckard.Core/Leak.cs",
+            "using var reader = new StreamReader(path);\n",
+        )
+        self.assertCaught(
+            repo_checks.check_core_filesystem_boundary(self.repo.root), "touch the filesystem"
+        )
+
+    def test_prose_mentioning_the_boundary_is_not_caught(self):
+        """A doc comment explaining this exact rule must not trip the rule it explains --
+        this is the ADR 0005 review finding: Core's own comments legitimately say things
+        like 'Core touches no filesystem' and 'System.IO.File', which must stay legible
+        without becoming false positives."""
+        self.repo.write(
+            "src/Deckard.Core/Replay/SourceBaselineId.cs",
+            "namespace Deckard.Core.Replay;\n\n"
+            "/// <summary>\n"
+            "/// A value passed in, never read: Deckard.Core touches no filesystem, so this\n"
+            "/// type has no knowledge of System.IO.File or where the manifest lives.\n"
+            "/// </summary>\n"
+            "public readonly record struct SourceBaselineId(string SourceId);\n",
+        )
+        self.assertEqual(repo_checks.check_core_filesystem_boundary(self.repo.root), [])
+
+    def test_data_project_is_not_scanned(self):
+        """Data's structured-data loaders will legitimately read files; only Core is banned."""
+        self.repo.write(
+            "src/Deckard.Data/Loader.cs",
+            "var text = File.ReadAllText(path);\n",
+        )
+        self.assertEqual(repo_checks.check_core_filesystem_boundary(self.repo.root), [])
+
+    def test_tests_are_not_scanned(self):
+        self.repo.write(
+            "tests/Deckard.Core.Tests/T.cs",
+            "var text = File.ReadAllText(path);\n",
+        )
+        self.assertEqual(repo_checks.check_core_filesystem_boundary(self.repo.root), [])
+
+    def test_generated_obj_output_is_skipped(self):
+        self.repo.write(
+            "src/Deckard.Core/obj/Debug/Deckard.Core.GlobalUsings.g.cs",
+            "global using System.IO;\n",
+        )
+        self.assertEqual(repo_checks.check_core_filesystem_boundary(self.repo.root), [])
+
+
 class SourceBoundaryTests(CheckTestCase):
     def test_clean_repo_passes(self):
         self.repo.write("docs/architecture.md", "Deckard layering.\n")
