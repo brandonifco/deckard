@@ -26,6 +26,15 @@ Deckard assembly consumes another, `GetReferencedAssemblies()` returns nothing a
 assertions pass vacuously. They begin catching real violations as soon as Phase 1 code
 crosses an assembly boundary. Until then, the declared-graph check is the enforcement.
 
+### Test-support code
+
+`tests/Deckard.Testing` carries fakes and test doubles (starting with
+`FixedSequenceRandomSource`) shared across the test projects above. It is not a fourth
+layer in the shipped graph: it is `IsPackable=false`, ships to nobody, and
+`tools/repo-checks.py --only layering` forbids any `src/` project from referencing it.
+`Deckard.Testing` itself may reference `Deckard.Core` only. See the amendment to
+[`decisions/0001-architecture-boundaries.md`](decisions/0001-architecture-boundaries.md).
+
 ### Core
 
 Deterministic and general. **Core must not touch** the filesystem, a UI or game engine,

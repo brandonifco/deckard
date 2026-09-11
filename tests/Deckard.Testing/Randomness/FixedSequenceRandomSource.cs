@@ -1,15 +1,17 @@
 using System.Collections.Generic;
 using System.Linq;
+using Deckard.Core.Randomness;
 
-namespace Deckard.Core.Randomness;
+namespace Deckard.Testing.Randomness;
 
 /// <summary>
 /// A scripted <see cref="IRandomSource"/> that replays a fixed sequence of values in
-/// order, for higher-layer unit tests that need to control exactly what a mechanic
-/// draws. Lives in Deckard.Core (a production assembly) rather than a test project:
-/// Issue #2 requires it be usable from Deckard.Rules.Tests and Deckard.Data.Tests, Core
-/// is the only assembly both already depend on, and adding a fourth, test-only assembly
-/// to carry it would be an architecture change outside this Issue's scope.
+/// order, for unit tests that need to control exactly what a mechanic draws. Lives in
+/// <c>Deckard.Testing</c>, a non-packable test-support project under <c>tests/</c>
+/// rather than in <c>Deckard.Core</c>: it ships to nobody, it is not a fourth layer in
+/// the <c>Core &lt;- Data &lt;- Rules</c> graph, and <c>tools/repo-checks.py --only
+/// layering</c> forbids any <c>src/</c> project from referencing it. See
+/// docs/decisions/0001-architecture-boundaries.md.
 /// </summary>
 public sealed class FixedSequenceRandomSource : IRandomSource
 {
