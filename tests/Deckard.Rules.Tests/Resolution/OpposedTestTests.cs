@@ -82,6 +82,39 @@ public sealed class OpposedTestTests
         Assert.Equal(0, result.NetHits);
     }
 
+    // ------------------------------------------------------------------ one-hit margins
+
+    [Fact]
+    public void The_defender_wins_by_exactly_one_hit()
+    {
+        // The tightest losing margin for the actor. Every other Opposed test here decides
+        // by a margin of 2 or more, or by a tie, so an off-by-one that let the actor win
+        // one-hit losses as well as ties -- `actor.Hits + 1 >= defender.Hits` -- would
+        // pass all of them. This is the case that catches it.
+        var source = ForFaces(5, 2, /* actor: 1 hit */ 5, 6 /* defender: 2 hits */);
+
+        OpposedTestResult result = OpposedTest.Resolve(source, actorPool: 2, defenderPool: 2);
+
+        Assert.Equal(1, result.Actor.Hits);
+        Assert.Equal(2, result.Defender.Hits);
+        Assert.Equal(OpposedTestWinner.Defender, result.Winner);
+        Assert.Equal(1, result.NetHits);
+    }
+
+    [Fact]
+    public void The_actor_wins_by_exactly_one_hit()
+    {
+        // The mirror of the above, so neither direction rests on the other's evidence.
+        var source = ForFaces(5, 6, /* actor: 2 hits */ 5, 2 /* defender: 1 hit */);
+
+        OpposedTestResult result = OpposedTest.Resolve(source, actorPool: 2, defenderPool: 2);
+
+        Assert.Equal(2, result.Actor.Hits);
+        Assert.Equal(1, result.Defender.Hits);
+        Assert.Equal(OpposedTestWinner.Actor, result.Winner);
+        Assert.Equal(1, result.NetHits);
+    }
+
     // ------------------------------------------------------------------------ net hits
 
     [Fact]

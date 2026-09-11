@@ -92,7 +92,7 @@ come apart.
 
 **A second tension, left unresolved by the book.** The same page states that an opposing
 party resists "so you must exceed their effort to succeed." On a tie, the actor has not
-exceeded the defender's effort under any ordinary reading of "exceed" — yet the very next
+exceeded the defender's effort under any ordinary reading of "exceed" — yet the same
 paragraph gives ties to the aggressor anyway. The book does not reconcile these two
 statements, and this ADR does not attempt to either, beyond noting that a tie-break rule
 existing at all is itself evidence the "exceed" language is not meant as a literal
