@@ -8,5 +8,6 @@
     <Project Path="tests/Deckard.Core.Tests/Deckard.Core.Tests.csproj" />
     <Project Path="tests/Deckard.Data.Tests/Deckard.Data.Tests.csproj" />
     <Project Path="tests/Deckard.Rules.Tests/Deckard.Rules.Tests.csproj" />
+    <Project Path="tests/Deckard.Testing/Deckard.Testing.csproj" />
   </Folder>
 </Solution>

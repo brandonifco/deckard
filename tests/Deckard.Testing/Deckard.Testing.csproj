@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Test-support code shared across Deckard's test projects. Not a test project
+       itself: it carries no test framework and runs no tests. Never shipped, either:
+       IsPackable is false, and tools/repo-checks.py, run with "only layering", forbids
+       any src/ project from referencing it. See
+       docs/decisions/0001-architecture-boundaries.md. -->
+  <PropertyGroup>
+    <RootNamespace>Deckard.Testing</RootNamespace>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/Deckard.Core/Deckard.Core.csproj" />
+  </ItemGroup>
+
+</Project>

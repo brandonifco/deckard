@@ -127,35 +127,60 @@ class DeterminismTests(CheckTestCase):
 
 class LayeringTests(CheckTestCase):
     def _project(self, name: str, refs: list[str]) -> None:
+        # Each project is written at its real location (PROJECT_DIRS), not assumed to be
+        # under src/ -- Deckard.Testing lives under tests/ instead, and this fixture
+        # exercises the same lookup check_layering itself uses.
+        location = repo_checks.PROJECT_DIRS.get(name, f"src/{name}")
         body = "\n".join(
-            f'    <ProjectReference Include="../{r}/{r}.csproj" />' for r in refs
+            f'    <ProjectReference Include="../../{repo_checks.PROJECT_DIRS.get(r, f"src/{r}")}/{r}.csproj" />'
+            for r in refs
         )
         self.repo.write(
-            f"src/{name}/{name}.csproj",
+            f"{location}/{name}.csproj",
             f"<Project Sdk=\"Microsoft.NET.Sdk\">\n  <ItemGroup>\n{body}\n  </ItemGroup>\n</Project>\n",
         )
 
+    def _all_projects(self, **overrides: list[str]) -> None:
+        """Write every project in ALLOWED_PROJECT_REFS with its correct graph, except
+        for names present in `overrides`, which get the given (possibly violating) refs
+        instead. Keeps each test focused on the one edge it is checking."""
+        graph = {
+            "Deckard.Core": [],
+            "Deckard.Data": ["Deckard.Core"],
+            "Deckard.Rules": ["Deckard.Core", "Deckard.Data"],
+            "Deckard.Testing": ["Deckard.Core"],
+        }
+        graph.update(overrides)
+        for name, refs in graph.items():
+            self._project(name, refs)
+
     def test_declared_graph_matching_the_spec_passes(self):
-        self._project("Deckard.Core", [])
-        self._project("Deckard.Data", ["Deckard.Core"])
-        self._project("Deckard.Rules", ["Deckard.Core", "Deckard.Data"])
+        self._all_projects()
         self.assertEqual(repo_checks.check_layering(self.repo.root), [])
 
     def test_core_depending_upward_is_caught(self):
-        self._project("Deckard.Core", ["Deckard.Rules"])
-        self._project("Deckard.Data", ["Deckard.Core"])
-        self._project("Deckard.Rules", ["Deckard.Core", "Deckard.Data"])
+        self._all_projects(**{"Deckard.Core": ["Deckard.Rules"]})
         self.assertCaught(repo_checks.check_layering(self.repo.root), "Deckard.Core declares forbidden")
 
     def test_data_depending_on_rules_is_caught(self):
-        self._project("Deckard.Core", [])
-        self._project("Deckard.Data", ["Deckard.Core", "Deckard.Rules"])
-        self._project("Deckard.Rules", [])
+        self._all_projects(**{"Deckard.Data": ["Deckard.Core", "Deckard.Rules"]})
         self.assertCaught(repo_checks.check_layering(self.repo.root), "Deckard.Data declares forbidden")
 
     def test_missing_project_is_caught(self):
         self._project("Deckard.Core", [])
         self.assertCaught(repo_checks.check_layering(self.repo.root), "missing expected project")
+
+    def test_src_project_referencing_testing_is_caught(self):
+        """The load-bearing rule this Issue adds: nothing under src/ may pull in the
+        test-support project, or the type it carries walks straight back into the
+        shipped graph."""
+        self._all_projects(**{"Deckard.Rules": ["Deckard.Core", "Deckard.Data", "Deckard.Testing"]})
+        self.assertCaught(repo_checks.check_layering(self.repo.root), "Deckard.Rules declares forbidden")
+
+    def test_testing_project_referencing_anything_but_core_is_caught(self):
+        """Deckard.Testing may see Core and nothing else -- not Data, not Rules."""
+        self._all_projects(**{"Deckard.Testing": ["Deckard.Core", "Deckard.Data"]})
+        self.assertCaught(repo_checks.check_layering(self.repo.root), "Deckard.Testing declares forbidden")
 
 
 class SourceBoundaryTests(CheckTestCase):
