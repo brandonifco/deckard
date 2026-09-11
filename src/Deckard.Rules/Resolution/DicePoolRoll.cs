@@ -7,37 +7,46 @@ namespace Deckard.Rules.Resolution;
 /// One rolled and counted SR6 dice pool: the dice as rolled, in draw order, and the two
 /// counts every SR6 test is built from -- hits and ones -- plus the glitch severity those
 /// counts determine. This is the shared building block <see cref="SimpleTest"/> and
-/// <see cref="OpposedTest"/> both resolve against; an Opposed test rolls two of these.
+/// <see cref="OpposedTest"/> both resolve against; an Opposed test rolls two of these, one
+/// per side.
 ///
 /// SR6 Core / Game Concepts / Tests / printed p. 35 / PDF p. 36: hits are the dice that
 /// come up 5 or 6; ones are counted separately to determine glitches. Glitch severity:
 /// SR6 Core / Game Concepts / Glitches and Critical Glitches / printed p. 44 / PDF p. 45.
 ///
-/// <b>Glitch is scoped per roll here, not per test (Issue #61).</b> The book states both
-/// glitch conditions in terms of the test, not the roll: a glitch is "more than half of
-/// the dice that you roll on a <i>test</i>" coming up 1s, and a critical glitch is a
-/// glitch rolled "without a single hit on the <i>test</i>" (SR6 Core / Game Concepts /
-/// Glitches and Critical Glitches / printed p. 44 / PDF p. 45; emphasis on the scoping
-/// phrase "on a test"). <see cref="Glitch"/> is instead derived from exactly the dice one
-/// <see cref="Roll"/> call drew. That is the same thing as the book's test-level severity
-/// only when the test itself consists of a single roll -- which is true for
-/// <see cref="SimpleTest"/> and <see cref="OpposedTest"/> (SR6 Core / Game Concepts /
-/// Tests / Simple Tests, Opposed Tests / printed pp. 35-36 / PDF pp. 36-37): both resolve
-/// in exactly one <see cref="Roll"/>, so roll and test coincide and this field already is
-/// the book's rule.
+/// <b>Glitch is scoped per roll here, not per test (Issue #61).</b> The book scopes both
+/// glitch conditions to the test, not the roll -- "on a test" is the phrase both conditions
+/// on printed p. 44 / PDF p. 45 use to say so. <see cref="Glitch"/> is instead derived from
+/// exactly the dice one <see cref="Roll"/> call drew.
 ///
-/// It stops being equivalent the moment a test spans more than one roll. Two variants the
-/// book prints on the same pages do exactly that (SR6 Core / Game Concepts / Tests /
-/// Extended Tests, Teamwork Tests / printed p. 36 / PDF p. 37): an Extended test
-/// accumulates hits across repeated rolls of a dice pool that shrinks by one die each
-/// time, so a test-level glitch has to be judged against ones and dice totaled over every
-/// roll made so far, not one roll's own count; a Teamwork test's dice span a leader's roll
-/// plus one or more helpers' rolls, so "the test" is not any single roll either. Neither
-/// is implemented yet -- <see cref="ExtendedTest"/> and <see cref="TeamworkTest"/> both
-/// refuse explicitly rather than guess -- but whichever Issue implements one must compute
-/// that test-level severity from the test's own accumulated dice. Reusing a single
-/// <see cref="DicePoolRoll.Glitch"/> for a multi-roll test would judge the wrong dice
-/// against both conditions above.
+/// For a test that is a single roll, that is not actually a discrepancy: a roll's dice are
+/// the whole test's dice, so this field already is the book's rule. That covers
+/// <see cref="SimpleTest"/> outright, and covers <see cref="OpposedTest"/> per side -- an
+/// Opposed test is two rolls, one per party (printed p. 35 / PDF p. 36), so each side's own
+/// <see cref="Glitch"/> already is that side's test-level severity; the two sides are never
+/// combined into one severity for the test as a whole.
+///
+/// It stops being that simple once a single party's test spans more than one roll, which the
+/// book's own Extended and Teamwork variants do (SR6 Core / Game Concepts / Tests / Extended
+/// Tests, Teamwork Tests / printed p. 36 / PDF p. 37) -- neither implemented yet;
+/// <see cref="ExtendedTest"/> and <see cref="TeamworkTest"/> both refuse explicitly rather
+/// than guess. The book itself treats a glitch inside that kind of structure as a per-roll
+/// event: a Teamwork helper's own glitch carries its own distinct consequence, separate from
+/// the leader's roll (same pages). How both glitch conditions apply once several rolls make
+/// up one test was a genuine source ambiguity -- the book scopes the plain glitch condition
+/// three different ways across these pages -- that Brandon has since settled as a deliberate
+/// interpretation: ADR 0012 (docs/decisions/0012-multi-roll-glitch-scoping-hybrid.md). Per
+/// that ADR, whether a roll glitches stays scoped to that roll's own dice, consistent with
+/// the helper-glitch treatment above and unchanged from today's rule -- but whether a glitch
+/// is critical is scoped to the whole test's hits accumulated across every roll made so far,
+/// not the glitching roll's own hits alone. A single <see cref="DicePoolRoll.Glitch"/> cannot
+/// express that test-level half once more than one roll is in play: whichever Issue
+/// implements Extended or Teamwork must compute criticality per ADR 0012, not by reusing one
+/// roll's own <see cref="Glitch"/> value.
+///
+/// (Buying Hits, printed pp. 35-36 / PDF pp. 36-37, resolves a test with no roll of any dice
+/// at all, so neither glitch condition has anything to apply to there -- outside this
+/// remark's one-roll/many-rolls framing entirely, not a third case of it.)
 ///
 /// Built only by <see cref="Roll"/>, directly on top of
 /// <see cref="D6.Roll(IRandomSource, int)"/> (Issue #3) -- this type adds no face
@@ -59,12 +68,14 @@ public sealed class DicePoolRoll
     /// <summary>
     /// None, Glitch, or CriticalGlitch -- derived entirely from <see cref="Ones"/>,
     /// <see cref="Hits"/>, and the pool size of this one roll; see <see cref="Roll"/> for
-    /// the exact rule. A <em>per-roll</em> severity: it equals the book's test-level
-    /// severity (SR6 Core / Game Concepts / Glitches and Critical Glitches / printed
-    /// p. 44 / PDF p. 45) only for a test that consists of a single roll, which is every
-    /// test type implemented today. A test spanning more than one roll -- Extended,
-    /// Teamwork -- must compute its own severity from ones and hits accumulated across
-    /// all of the test's rolls rather than reuse this field; see the class remarks above.
+    /// the exact rule. A <em>per-roll</em> value: for a test that is a single roll -- every
+    /// test type implemented today -- this already is the book's test-level severity (SR6
+    /// Core / Game Concepts / Glitches and Critical Glitches / printed p. 44 / PDF p. 45).
+    /// For a test spanning more than one roll, only the glitch trigger stays scoped to this
+    /// one roll; the test's criticality does not, and must be computed separately per ADR
+    /// 0012 (docs/decisions/0012-multi-roll-glitch-scoping-hybrid.md) rather than read off
+    /// this property. See the class remarks above for the full rule and why Opposed tests
+    /// are unaffected.
     /// </summary>
     public GlitchSeverity Glitch { get; }
 
