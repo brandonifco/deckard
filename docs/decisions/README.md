@@ -40,9 +40,10 @@ trail survives.
 | [0001](0001-architecture-boundaries.md) | Architecture boundaries and technical baseline | Accepted |
 | [0002](0002-deterministic-randomness.md) | Deterministic randomness architecture | Accepted |
 | [0003](0003-source-baseline.md) | Authoritative source baseline and errata policy | Accepted |
-| [0004](0004-unresolved-rule-taxonomy.md) | Unresolved-rule taxonomy | Accepted |
+| [0004](0004-unresolved-rule-taxonomy.md) | Unresolved-rule taxonomy | Superseded by 0011 |
 | [0005](0005-replay-compatibility-identity.md) | Replay compatibility identity | Accepted |
 | [0006](0006-deterministic-ordering-conventions.md) | Deterministic ordering conventions for observable sequences | Accepted |
 | [0007](0007-opposed-test-tie-break-interpretation.md) | Opposed test tie-break: aggressor mapped to the acting side | Accepted |
 | [0008](0008-round-cap-scoped-to-combat-rounds.md) | Edge's bonus-gain cap applies only inside a combat round | Accepted |
 | [0009](0009-licensing-and-distribution-posture.md) | Licensing and distribution posture | Accepted |
+| [0011](0011-resolution-result-shape-totality-not-universality.md) | Resolution result shape: totality determines the union, not universality | Accepted |
