@@ -7,8 +7,8 @@ namespace Deckard.Rules.Resolution;
 /// dice pool, count hits, and compare against a gamemaster-set threshold. Hits equal to or
 /// greater than the threshold succeed; net hits are the hits above the threshold.
 ///
-/// A glitch never cancels a success: printed p. 44 / PDF p. 45 -- "If you rolled enough
-/// hits, a test with a glitch may also be a success." <see cref="SimpleTestResult.Succeeded"/>
+/// A glitch does not cancel a success (printed p. 44 / PDF p. 45): a test can succeed and
+/// glitch at once, and the success stands regardless. <see cref="SimpleTestResult.Succeeded"/>
 /// and <see cref="DicePoolRoll.Glitch"/> are independent facts about the same roll, both
 /// exposed on <see cref="SimpleTestResult"/> rather than one silently overriding the other.
 /// </summary>
@@ -34,10 +34,10 @@ public static class SimpleTest
 
         DicePoolRoll roll = DicePoolRoll.Roll(source, dicePool);
         bool succeeded = roll.Hits >= threshold;
-        // "the hits above the minimum amount needed to succeed are called net hits"
-        // (printed p. 35 / PDF p. 36) is defined in terms of success; on a failed test
-        // there is nothing "above" the threshold, so net hits is reported as 0 rather
-        // than a negative shortfall.
+        // Net hits (printed p. 35 / PDF p. 36) are the hits a roll produced beyond what
+        // it needed to succeed -- a concept defined in terms of success. On a failed
+        // test there is nothing beyond the threshold, so net hits is reported as 0
+        // rather than a negative shortfall.
         int netHits = succeeded ? roll.Hits - threshold : 0;
 
         return new SimpleTestResult(roll, threshold, succeeded, netHits);

@@ -6,9 +6,11 @@ namespace Deckard.Rules.Tests.Resolution;
 /// <summary>
 /// Pins <see cref="SimpleTest"/> against SR6 Core / Game Concepts / Tests / Simple Tests /
 /// printed p. 35 / PDF p. 36: hits meeting or beating the threshold succeed; net hits are
-/// the hits above the threshold. Also pins the printed Threshold Guidelines table (same
-/// pages, values 1-7) end to end -- the mechanical rule is identical at every threshold
-/// the table lists, so the whole table is exercised rather than a sample of it.
+/// the hits above the threshold. Also confirms that same uniform &gt;= rule holds at every
+/// threshold value the printed Threshold Guidelines table lists (same pages, 1-7). That
+/// table is descriptive difficulty labels with no distinct mechanic per row, so this is
+/// evidence the rule generalizes across its full listed range -- not a claim that the
+/// table's prose itself is pinned.
 /// </summary>
 public sealed class SimpleTestTests
 {
@@ -58,8 +60,8 @@ public sealed class SimpleTestTests
 
         Assert.False(result.Succeeded);
         Assert.Equal(1, result.Roll.Hits);
-        // "hits above the threshold" is not defined below the threshold; reported as 0
-        // rather than a negative shortfall.
+        // Net hits has no meaning below the threshold; reported as 0 rather than a
+        // negative shortfall.
         Assert.Equal(0, result.NetHits);
     }
 
@@ -122,6 +124,32 @@ public sealed class SimpleTestTests
         Assert.Equal(GlitchSeverity.CriticalGlitch, result.Roll.Glitch);
         Assert.True(result.Succeeded);
         Assert.Equal(0, result.NetHits);
+    }
+
+    // --------------------------------------------------------------- draw accounting
+
+    [Fact]
+    public void Resolve_consumes_exactly_one_draw_per_die_in_the_pool()
+    {
+        // Draw count is part of the observable contract (ADR 0002). SimpleTest only
+        // delegates to DicePoolRoll.Roll, but that delegation is exactly what a stray
+        // extra draw inside SimpleTest itself would slip past if this were never
+        // asserted here directly.
+        var source = ForFaces(5, 5, 5);
+
+        SimpleTest.Resolve(source, dicePool: 3, threshold: 2);
+
+        Assert.Equal(3, source.Consumed);
+    }
+
+    [Fact]
+    public void Resolve_with_a_zero_dice_pool_consumes_no_draws()
+    {
+        var source = ForFaces();
+
+        SimpleTest.Resolve(source, dicePool: 0, threshold: 0);
+
+        Assert.Equal(0, source.Consumed);
     }
 
     // --------------------------------------------------------- threshold guidelines table

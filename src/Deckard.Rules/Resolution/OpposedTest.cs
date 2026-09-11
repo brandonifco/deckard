@@ -43,13 +43,13 @@ public static class OpposedTest
         DicePoolRoll defender = DicePoolRoll.Roll(source, defenderPool);
 
         bool tied = actor.Hits == defender.Hits;
-        // "Ties typically go to the aggressor" (printed p. 35 / PDF p. 36) -- the acting
-        // side wins outright on a tie, not just "counts as not losing"; NetHits is 0 in
-        // that case, which is what actually cashes out the book's further caveat that a
-        // tie "may change if net hits are required to make a given effect": whether an
-        // effect needs net hits > 0 is a downstream concern this Issue's Non-goals
-        // exclude (no combat/damage effects), and a tie already reports 0 net hits, so
-        // nothing here needs to model that caveat directly.
+        // The book gives a tie to the aggressor by default (printed p. 35 / PDF p. 36,
+        // modeled here as the acting side): the acting side wins outright on a tie, not
+        // just "counts as not losing", and NetHits is 0 in that case. The book also
+        // notes that default can be overridden when a specific effect needs net hits to
+        // trigger -- a downstream concern this Issue's Non-goals exclude (no
+        // combat/damage effects). A tie already reports 0 net hits, so nothing here
+        // needs to model that override directly.
         OpposedTestWinner winner = actor.Hits >= defender.Hits
             ? OpposedTestWinner.Actor
             : OpposedTestWinner.Defender;
