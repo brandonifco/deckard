@@ -16,7 +16,7 @@
         "type": "Direct",
         "requested": "[2.9.3, )",
         "resolved": "2.9.3",
-        "contentHash": "CORRUPTED-FOR-ISSUE-43-CI-DEMONSTRATION-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+        "contentHash": "TlXQBinK35LpOPKHAqbLY4xlEen9TBafjs0V5KnA4wZsoQLQJiirCR4CbIXvOH8NzkW4YeJKP5P/Bnrodm0h9Q==",
         "dependencies": {
           "xunit.analyzers": "1.18.0",
           "xunit.assert": "2.9.3",
