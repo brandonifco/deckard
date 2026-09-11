@@ -17,9 +17,13 @@ kept short on purpose: read the routed document when you need the detail, not be
 
 **Phase 0 — repository and source foundation.** Complete.
 **Phase 1 — deterministic randomness and the dice/test kernel.** Complete.
-**Phase 2 — core test-resolution primitives.** Next.
+**Phase 2 — core test-resolution primitives.** Complete.
+**Phase 3 — character attributes, skills, derived mechanics.** Complete.
+**Phase 4 — Edge foundation.** In progress: the Edge economy is implemented; Edge Actions
+and Edge Boosts are not.
 
-No Shadowrun mechanic is implemented yet. Do not add one outside its own Issue.
+Shadowrun mechanics are now implemented. Do not add one outside its own Issue, and build what
+a rule consumes before the rule — see the ordering rule in `docs/roadmap.md`.
 Phase order and exit criteria: `docs/roadmap.md`.
 
 ## Source authority
