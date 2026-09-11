@@ -184,10 +184,13 @@ diff_text="$(git diff -U"$CONTEXT" "$range")" || die "git diff failed for $range
 
 # ------------------------------------------------------------------- rules detection
 
-# Whether rules-conformance and Codex are also expected on top of repo-steward -- see
-# .claude/skills/rules-review/SKILL.md "Order the reviews cheapest first". A generic
-# structural packet does not decide this by re-reading the Issue's labels: it looks at
-# what actually changed, which is the fact the reviewer downstream will also see.
+# Whether rules-conformance and the independent verdict are also expected on top of
+# repo-steward -- see .claude/skills/rules-review/SKILL.md "Order the reviews cheapest
+# first". The independent verdict is an ordered fallback chain, not one fixed vendor
+# (AGENTS.md; ADR 0010) -- this script does not name the chain here, since that list
+# already lives in exactly one place. A generic structural packet does not decide this
+# by re-reading the Issue's labels: it looks at what actually changed, which is the
+# fact the reviewer downstream will also see.
 #
 # The detection itself -- the path set and the rename-safe splitting of `git diff
 # --name-status` output -- lives once, in tools/lib/rules-surface.sh (sourced above), so
@@ -204,7 +207,7 @@ pr-policy PR-template check            (.github workflow; runs on the opened PR)
 if [[ "$rules_touch" -eq 1 ]]; then
   gates="$gates
 rules-conformance review               (adversarial, against the cited source packet)
-Codex independent cross-vendor review  (dice/tests/Edge/initiative/damage/high-impact tables)"
+Independent verdict review             (fallback chain -- AGENTS.md / ADR 0010 name the vendor that ran)"
 fi
 
 # ------------------------------------------------------------------------------ ADRs
@@ -281,7 +284,7 @@ $gates
 
 ## Touches src/Deckard.Rules, src/Deckard.Data, their tests, or the source manifest?
 
-$([[ "$rules_touch" -eq 1 ]] && echo "YES -- rules-conformance and Codex review apply, not just repo-steward." || echo "NO -- repo-steward's structural review is the whole review.")
+$([[ "$rules_touch" -eq 1 ]] && echo "YES -- rules-conformance and the independent verdict (fallback chain -- AGENTS.md / ADR 0010) apply, not just repo-steward." || echo "NO -- repo-steward's structural review is the whole review.")
 EOF
 )"
 

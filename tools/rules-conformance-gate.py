@@ -86,7 +86,8 @@ RISK_LABEL = "risk:rules-conformance"
 # against a freshly extracted packet: the rulebook never enters CI (CLAUDE.md, "The book
 # never enters the repository"), so there is nothing here to compare it to. What this
 # proves is accountability -- a specific packet was named -- not cryptographic truth;
-# the truth of the review itself is what rules-conformance and Codex exist to check.
+# the truth of the review itself is what rules-conformance and the independent
+# verdict exist to check.
 VERDICT_RE = re.compile(
     r"^(PASS|FAIL)\b.*\bbodySha256=([0-9a-fA-F]{64})\b.*\bpages=(\S+)", re.DOTALL
 )
