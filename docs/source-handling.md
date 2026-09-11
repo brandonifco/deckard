@@ -94,6 +94,56 @@ Issue is too broad, not that the limit is wrong.
 **This is not a search tool.** It slices pages you already located. Do not build a
 searchable copy of the book, a full transcription, or a RAG index in this repository.
 
+### Extraction provenance
+
+The PDF is pinned by sha256, verified before any extraction happens. The *text* that
+comes out of it is produced by whatever `pdftotext` build is on the machine running
+`source-slice.py`, and that is not something a file hash can pin. For running prose the
+difference between poppler versions is usually nil; for multi-column tables and other
+layout-sensitive material -- precisely where `--layout` matters most -- it is not. Since
+packets are deliberately ephemeral and gitignored (below), there is no archived artifact
+to compare against later: the provenance has to be captured in the packet header at
+generation time, or it does not exist.
+
+Every packet header therefore names exactly how its body was produced:
+
+```
+extractor       : pdftotext
+extractorVersion: 24.02.0
+argv            : pdftotext -f 47 -l 47 -layout sr6-core.pdf -
+bodySha256      : 3f5c1e...
+```
+
+- `extractor` / `extractorVersion` -- the tool and the version string it reports for
+  itself (`pdftotext -v`).
+- `argv` -- the real invocation, flags and page numbers included, so `--layout` and the
+  page range are visible rather than inferred from prose. The local filesystem path is
+  replaced with its basename, for the same reason `./scripts/doctor.sh` never prints
+  Brandon's full path: this text gets read, and occasionally quoted from.
+- `bodySha256` -- a sha256 over the extracted body alone. This is what a review citation
+  ("verified against packet X") actually verifies against, given the packet itself is
+  never committed and so cannot be re-read later. Regenerating a packet from the same
+  source, the same page range and the same `extractorVersion` reproduces the same
+  `bodySha256`; a different body -- even a single re-wrapped line -- produces a different
+  one.
+
+**What the pin can and cannot guarantee.** CI (`.github/workflows/build-and-test.yml`)
+runs on a fixed Ubuntu image (not the `ubuntu-latest` alias, which has silently jumped
+Ubuntu releases before) and, after installing `poppler-utils`, asserts the resulting
+`pdftotext -v` matches the version recorded in `.github/poppler-version.json`, failing
+the build loudly if it does not. `./scripts/doctor.sh` compares a local install against
+the same file and warns, without blocking, on a mismatch.
+
+That is real pinning of *what CI runs*, but it is not a guarantee that every developer's
+machine extracts byte-identical text: Deckard does not vendor Poppler, build it from
+source, or ship a container image, so a contributor on a different OS may have a
+different `pdftotext` and there is no mechanism here that can force it to match. What
+the pin actually buys is narrower and still worth having: CI stops silently drifting
+underneath the project over time, and any local mismatch is reported rather than
+assumed away. `extractor`, `extractorVersion` and `bodySha256` exist precisely so that,
+if two packets for the same pages ever do disagree, that disagreement is visible and
+citable instead of silently trusted.
+
 ## Citing rules
 
 Every mechanics Issue, PR and rules test cites its source location:

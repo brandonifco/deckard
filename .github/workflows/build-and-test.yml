@@ -21,7 +21,11 @@ permissions:
 
 jobs:
   build-and-test:
-    runs-on: ubuntu-latest
+    # A fixed release, not the `ubuntu-latest` alias: that alias has jumped Ubuntu
+    # releases before (20.04 -> 22.04 -> 24.04), and each jump silently changes which
+    # poppler-utils apt resolves below. Pinning the image is what makes the version
+    # check two steps down a meaningful pin rather than a check against a moving target.
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -40,6 +44,24 @@ jobs:
         # Environment setup only. validate.sh asserts pdftotext is actually present --
         # the gate condition lives there, not here.
         run: sudo apt-get update -qq && sudo apt-get install -y -qq poppler-utils
+
+      - name: Verify the pinned poppler-utils version
+        # Deckard does not vendor Poppler (docs/source-handling.md), so apt is not asked
+        # for an exact package build -- older builds routinely fall out of the archive
+        # and that request would eventually break this job for reasons unrelated to any
+        # PR. What is pinned is the OS image above, plus this explicit, loud check: if
+        # apt ever resolves a pdftotext other than the one .github/poppler-version.json
+        # expects, CI fails here rather than silently producing packets whose extraction
+        # provenance no longer matches what every past packet recorded. Bump the pinned
+        # file deliberately, in its own commit, once a version change is confirmed safe.
+        run: |
+          expected="$(python3 -c 'import json;print(json.load(open(".github/poppler-version.json"))["pdftotext"])')"
+          actual="$(pdftotext -v 2>&1 | head -1 | awk '{print $3}')"
+          if [[ "$actual" != "$expected" ]]; then
+            echo "::error::pdftotext version drift: CI pins $expected in .github/poppler-version.json, apt installed $actual"
+            exit 1
+          fi
+          echo "pdftotext $actual matches the pinned expectation ($expected)"
 
       - name: Validate
         env:

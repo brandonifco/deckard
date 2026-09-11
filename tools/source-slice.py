@@ -204,24 +204,93 @@ def check_packet_size(first: int, last: int, allow_large: bool) -> None:
 
 # ------------------------------------------------------------------------ extraction
 
+# CI (.github/workflows/build-and-test.yml) and scripts/doctor.sh both compare an
+# installed pdftotext against the version pinned in .github/poppler-version.json -- the
+# same granularity `pdftotext -v` reports, and exactly what ends up in every packet's
+# `extractorVersion` field below. This tool itself does not read or enforce that pin: it
+# reports whatever is actually installed, honestly, rather than silently blocking a
+# developer whose OS cannot match CI's exactly. See docs/source-handling.md for what the
+# pin can and cannot guarantee -- Deckard does not vendor Poppler (a deliberate
+# non-goal), so it forces drift to be *visible and deliberate*, not impossible.
 
-def extract(path: Path, first: int, last: int, layout: bool) -> str:
+
+def require_pdftotext() -> None:
     if shutil.which("pdftotext") is None:
         raise SourceSliceError(
             "pdftotext not found. Install poppler-utils:  sudo apt install poppler-utils"
         )
+
+
+def extractor_version() -> str:
+    """pdftotext's own reported version string, e.g. "24.02.0".
+
+    poppler-utils prints its banner (including the version) to stderr and exits 0 for
+    `-v`; older or newer builds have printed it to stdout instead, so both streams are
+    checked. This is the exact string written into every packet's `extractorVersion`
+    field, and the granularity CI and scripts/doctor.sh pin against.
+    """
+    result = subprocess.run(["pdftotext", "-v"], capture_output=True, text=True, check=False)
+    banner = result.stderr or result.stdout
+    match = re.search(r"version\s+(\S+)", banner)
+    if not match:
+        raise SourceSliceError(
+            f"could not parse a version from `pdftotext -v` output: {banner.strip()!r}"
+        )
+    return match.group(1)
+
+
+def build_argv(path: Path, first: int, last: int, layout: bool) -> list[str]:
     cmd = ["pdftotext", "-f", str(first), "-l", str(last)]
     if layout:
         cmd.append("-layout")
     cmd += [str(path), "-"]
-    result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    return cmd
+
+
+def redact_argv(argv: list[str], path: Path) -> list[str]:
+    """The argv as it goes into a packet header: every flag and page number, but never
+    the local filesystem path.
+
+    docs/source-handling.md already keeps scripts/doctor.sh from ever printing Brandon's
+    full local path, because doctor output gets pasted into Issues -- the same reasoning
+    applies here, since packets get read and occasionally quoted from even though they
+    are never committed. Only the basename survives; the flags this field exists to
+    disclose (`-layout`, `-f`, `-l`) are untouched.
+    """
+    needle = str(path)
+    return [Path(item).name if item == needle else item for item in argv]
+
+
+def extract(argv: list[str]) -> str:
+    result = subprocess.run(argv, capture_output=True, text=True, check=False)
     if result.returncode != 0:
         raise SourceSliceError(f"pdftotext failed ({result.returncode}): {result.stderr.strip()}")
     return result.stdout
 
 
-def build_header(source: dict, first: int, last: int, layout: bool, is_override: bool) -> str:
+def hash_body(body: str) -> str:
+    """Hash of the extracted body alone, over the exact bytes a packet's body is made
+    of -- what a later 'verified against packet X' review citation actually verifies
+    against, given the packet itself is never committed and so cannot be re-read."""
+    return hashlib.sha256(body.encode("utf-8")).hexdigest()
+
+
+def build_header(
+    source: dict,
+    first: int,
+    last: int,
+    layout: bool,
+    is_override: bool,
+    *,
+    extractor_version: str,
+    argv_display: list[str],
+    body_sha256: str,
+) -> str:
     offset = source["pageNumbering"]["printedPageEqualsPdfPageMinus"]
+
+    def field(label: str, value: str) -> str:
+        return f"{label:<16}: {value}"
+
     lines = [
         "=" * 78,
         "DECKARD SOURCE PACKET -- ephemeral, never commit this file",
@@ -234,13 +303,16 @@ def build_header(source: dict, first: int, last: int, layout: bool, is_override:
             "=" * 78,
         ]
     lines += [
-        f"sourceId        : {source['sourceId']}",
-        f"title           : {source['title']}",
-        f"edition         : {source['edition']}",
-        f"sha256          : {source['sha256']}",
-        f"pdf pages       : {first}-{last}",
-        f"printed pages   : {first - offset}-{last - offset}",
-        f"extraction      : pdftotext{' -layout' if layout else ''}",
+        field("sourceId", source["sourceId"]),
+        field("title", source["title"]),
+        field("edition", source["edition"]),
+        field("sha256", source["sha256"]),
+        field("pdf pages", f"{first}-{last}"),
+        field("printed pages", f"{first - offset}-{last - offset}"),
+        field("extractor", "pdftotext"),
+        field("extractorVersion", extractor_version),
+        field("argv", " ".join(argv_display)),
+        field("bodySha256", body_sha256),
         "",
         "Cite rules as:  SR6 Core / <section> / printed p. X / PDF p. Y",
         "This excerpt is copyrighted material reproduced locally for implementation",
@@ -303,7 +375,10 @@ def main(argv: list[str] | None = None) -> int:
     check_bounds(source, first, last)
     check_packet_size(first, last, args.allow_large)
 
-    body = extract(path, first, last, args.layout)
+    require_pdftotext()
+    version = extractor_version()
+    argv_used = build_argv(path, first, last, args.layout)
+    body = extract(argv_used)
 
     missing = [p for p in args.expect if not re.search(p, body, re.IGNORECASE)]
     if missing:
@@ -314,7 +389,19 @@ def main(argv: list[str] | None = None) -> int:
             "rather than weakening the anchor."
         )
 
-    packet = build_header(source, first, last, args.layout, is_override) + body
+    packet = (
+        build_header(
+            source,
+            first,
+            last,
+            args.layout,
+            is_override,
+            extractor_version=version,
+            argv_display=redact_argv(argv_used, path),
+            body_sha256=hash_body(body),
+        )
+        + body
+    )
 
     if args.output:
         out = Path(args.output)

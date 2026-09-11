@@ -80,7 +80,18 @@ if command -v python3 >/dev/null 2>&1; then ok "python3" "$(python3 --version | 
 else bad "python3" "not found -- source tooling requires it"; fi
 
 if command -v pdftotext >/dev/null 2>&1; then
-  ok "pdftotext" "$(pdftotext -v 2>&1 | head -1 | awk '{print $3}')"
+  poppler_actual="$(pdftotext -v 2>&1 | head -1 | awk '{print $3}')"
+  poppler_pinned="$(python3 -c 'import json;print(json.load(open(".github/poppler-version.json"))["pdftotext"])' 2>/dev/null || echo '?')"
+  if [[ "$poppler_actual" == "$poppler_pinned" ]]; then
+    ok "pdftotext" "$poppler_actual (matches CI's pin)"
+  else
+    # Not `bad`: this never blocks a build or a test, only whether two packets
+    # extracted on different machines are provably identical. Deckard does not vendor
+    # Poppler, so this cannot be forced to match -- see docs/source-handling.md.
+    warn "pdftotext" "$poppler_actual (CI pins $poppler_pinned in .github/poppler-version.json)"
+    hint "Every packet still records its own extractor/extractorVersion/bodySha256, so a"
+    hint "real divergence stays visible and citable rather than silently assumed away."
+  fi
 else
   bad "pdftotext" "not found -- source-slice.py cannot extract"
   hint "sudo apt install poppler-utils"
