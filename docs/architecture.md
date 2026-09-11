@@ -39,6 +39,8 @@ layer in the shipped graph: it is `IsPackable=false`, ships to nobody, and
 
 Deterministic and general. **Core must not touch** the filesystem, a UI or game engine,
 ambient time, the network, environment variables, JSON files, or the rulebook.
+`tools/repo-checks.py --only core-filesystem` enforces the filesystem prohibition today,
+by scanning Core's own source text for filesystem API call sites.
 
 Eventually: deterministic randomness primitives, dice primitives, value types, stable
 IDs, result types, state-transition primitives, event records.
@@ -76,6 +78,12 @@ same rules version + same initial state + same random seed/state + same ordered 
     = same outcomes and the same ordered event/roll history
 ```
 
+"Rules version" here is not undefined prose: it is the four-part
+`ReplayCompatibilityIdentity` (random algorithm, ruleset revision, replay schema, source
+baseline) that [`decisions/0005-replay-compatibility-identity.md`](decisions/0005-replay-compatibility-identity.md)
+defines and `Deckard.Core.Replay` implements. See that ADR for what each component means
+and which component changes are replay-compatibility events requiring their own ADR.
+
 Forbidden in engine source, and mechanically blocked by `repo-checks.py --only determinism`:
 
 | Forbidden | Why |
@@ -88,10 +96,15 @@ Forbidden in engine source, and mechanically blocked by `repo-checks.py --only d
 | `Environment.GetEnvironmentVariable` | the engine must not read its environment |
 | `Task.Run`, `.AsParallel()` | non-deterministic resolution order |
 
-Also forbidden by policy, and not mechanically checkable: relying on hash iteration
-order, and using floating-point arithmetic for discrete rules where exact integer or
-rational arithmetic is correct. Where Shadowrun specifies rounding, encode the rounding
-rule explicitly and pin its boundary cases in tests.
+Also forbidden by policy, and not mechanically checkable: relying on hash iteration order
+to determine anything observable. See
+[`decisions/0006-deterministic-ordering-conventions.md`](decisions/0006-deterministic-ordering-conventions.md)
+for what counts as observable and the approved and forbidden shapes.
+
+Also forbidden by policy, and not mechanically checkable: using floating-point arithmetic
+for discrete rules where exact integer or rational arithmetic is correct. Where Shadowrun
+specifies rounding, encode the rounding rule explicitly and pin its boundary cases in
+tests.
 
 A genuine exception is opted into per line with `// deckard:allow-nondeterminism <reason>`
 and must be justified in the PR. Diagnostics may need it. Rules resolution never does.
