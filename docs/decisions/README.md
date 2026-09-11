@@ -48,3 +48,4 @@ trail survives.
 | [0009](0009-licensing-and-distribution-posture.md) | Licensing and distribution posture | Accepted |
 | [0010](0010-independent-verdict-fallback-chain.md) | Independent verdict: an ordered vendor fallback chain, not one vendor | Accepted |
 | [0011](0011-resolution-result-shape-totality-not-universality.md) | Resolution result shape: totality determines the union, not universality | Accepted |
+| [0012](0012-multi-roll-glitch-scoping-hybrid.md) | Multi-roll glitch scoping: per-roll glitch, test-level critical glitch | Accepted |
