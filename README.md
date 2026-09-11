@@ -68,6 +68,18 @@ Reports what is present and what is missing, and never changes anything. The bui
 tests and CI do not need the rulebook; only rules work does.
 
 ```bash
+./scripts/bootstrap-dotnet.sh
+```
+
+Installs the exact SDK patch `global.json` pins into a repo-local `.dotnet/` in the
+primary checkout — gitignored, and something `git clean -xfd` would delete — rather than
+`$HOME` or system-wide, so no global `PATH` change is ever needed and the SDK on `PATH`
+stays whatever it already was for every other project on the machine. `validate.sh` and
+`doctor.sh` both prefer it automatically once it exists, including from a worktree. A
+previously hand-installed SDK outside the repository is superseded by this and can be
+removed.
+
+```bash
 ./scripts/validate.sh full
 ```
 
@@ -75,7 +87,7 @@ The canonical gate. Humans, agents and CI all run this exact command — there i
 definition of "acceptable" living in a workflow file. `fast` for the inner loop,
 `sdk-pin` to check the SDK alone.
 
-Requires .NET SDK 10.0.111 exactly (pinned in `global.json`), Python 3, and
+Requires the exact .NET SDK patch pinned in `global.json`, Python 3, and
 `poppler-utils` for source extraction.
 
 ## Working on it

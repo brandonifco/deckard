@@ -28,6 +28,10 @@ TestResults/
 .vscode/
 .idea/
 
+# Repo-local .NET SDK -- installed by scripts/bootstrap-dotnet.sh into the primary
+# checkout only. Large, and `git clean -xfd` removes it; rerun the script to restore it.
+/.dotnet/
+
 # Agent scratch — worktrees live OUTSIDE this repo (see tools/dispatch-agent.sh)
 /tmp/
 /worktrees/
