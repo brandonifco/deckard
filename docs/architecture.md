@@ -76,6 +76,12 @@ same rules version + same initial state + same random seed/state + same ordered 
     = same outcomes and the same ordered event/roll history
 ```
 
+"Rules version" here is not undefined prose: it is the four-part
+`ReplayCompatibilityIdentity` (random algorithm, ruleset revision, replay schema, source
+baseline) that [`decisions/0005-replay-compatibility-identity.md`](decisions/0005-replay-compatibility-identity.md)
+defines and `Deckard.Core.Replay` implements. See that ADR for what each component means
+and which component changes are replay-compatibility events requiring their own ADR.
+
 Forbidden in engine source, and mechanically blocked by `repo-checks.py --only determinism`:
 
 | Forbidden | Why |

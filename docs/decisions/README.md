@@ -41,3 +41,4 @@ trail survives.
 | [0002](0002-deterministic-randomness.md) | Deterministic randomness architecture | Accepted |
 | [0003](0003-source-baseline.md) | Authoritative source baseline and errata policy | Accepted |
 | [0004](0004-unresolved-rule-taxonomy.md) | Unresolved-rule taxonomy | Accepted |
+| [0005](0005-replay-compatibility-identity.md) | Replay compatibility identity | Accepted |
