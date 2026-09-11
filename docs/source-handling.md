@@ -88,8 +88,13 @@ test that fails if the flag ever appears.
 **The hash is verified before any extraction.** A mismatch extracts nothing and prints
 the expected and actual digests. Do not "fix" a mismatch by editing the manifest.
 
-**Packets are bounded** to 24 pages. Wanting 40 pages at once almost always means the
-Issue is too broad, not that the limit is wrong.
+**Packets are bounded** to 24 pages, absolutely -- there is no flag to extract more than
+this in one packet. Wanting 40 pages at once almost always means the Issue is too broad,
+not that the limit is wrong. (An earlier `--allow-large` escape hatch existed briefly but
+imposed no ceiling of its own -- it could extract the entire baseline in one packet,
+exactly what this limit exists to prevent. Nothing in the repository ever invoked it --
+not the agent tooling, not this document, not the source-packet skill -- so it was
+removed rather than given a second number to reason about; see #42.)
 
 **This is not a search tool.** It slices pages you already located. Do not build a
 searchable copy of the book, a full transcription, or a RAG index in this repository.
