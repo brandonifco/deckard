@@ -26,6 +26,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "tools" / "review-packet.sh"
+RULES_SURFACE_LIB = ROOT / "tools" / "lib" / "rules-surface.sh"
 
 DEFAULT_BODY = """## Purpose
 
@@ -100,8 +101,9 @@ class ReviewPacketTests(unittest.TestCase):
         self._run("git", "commit", "-q", "-m", message)
 
     def _init_repo(self) -> None:
-        (self.repo / "tools").mkdir(parents=True)
+        (self.repo / "tools" / "lib").mkdir(parents=True)
         shutil.copy(SCRIPT, self.repo / "tools" / "review-packet.sh")
+        shutil.copy(RULES_SURFACE_LIB, self.repo / "tools" / "lib" / "rules-surface.sh")
         self._run("git", "init", "-q", "-b", "main")
         self._run("git", "config", "user.email", "test@example.com")
         self._run("git", "config", "user.name", "Deckard Test")

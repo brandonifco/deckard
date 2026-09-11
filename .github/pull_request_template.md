@@ -20,7 +20,14 @@ Closes #
      "Verified all 11 rows of the printed table" is checkable.
      "Matches the book" is not.
 
-     NON-RULES WORK: write "N/A" and one line saying why. -->
+     NON-RULES WORK: write "N/A" and one line saying why.
+
+     This section is prose -- pr-policy checks it is filled in and cites a page, not
+     that a review actually happened. If this PR touches src/Deckard.Rules/,
+     src/Deckard.Data/, their test projects, or .github/source-manifest.json, the
+     rules-conformance-gate required check also demands a RECORDED verdict for this
+     exact head commit (tools/record-verdict.sh; docs/agent-team.md, "Recording a
+     verdict") before it can merge -- describing the review here does not satisfy it. -->
 
 ## Tests and evidence
 
