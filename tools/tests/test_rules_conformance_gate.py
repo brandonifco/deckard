@@ -39,7 +39,7 @@ sys.modules["rules_conformance_gate"] = gate
 _spec.loader.exec_module(gate)
 
 IN_HOUSE = gate.IN_HOUSE_CONTEXT
-INDEPENDENT = gate.INDEPENDENT_CONTEXT
+CODEX, GEMINI, IN_HOUSE_INDEPENDENT = gate.INDEPENDENT_CONTEXTS
 
 RULES_FILE = "M\tsrc/Deckard.Rules/DiceTest.cs\n"
 DOCS_FILE = "M\tdocs/roadmap.md\n"
@@ -89,20 +89,92 @@ class RulesSurfaceTouchedTests(unittest.TestCase):
         )
 
 
-class RequiredContextsTests(unittest.TestCase):
-    def test_ordinary_issue_requires_only_the_in_house_verdict(self):
-        contexts, notes = gate.required_contexts(["state:ready", "area:tooling"])
-        self.assertEqual(contexts, [IN_HOUSE])
+class RulesSurfaceLockFileExclusionTests(unittest.TestCase):
+    """Issue #86: a directory match alone is not enough. NuGet's
+    RestorePackagesWithLockFile (#43) writes packages.lock.json beside each project file
+    it locks, landing it under src/Deckard.Rules/, src/Deckard.Data/ and their test
+    projects -- a hash manifest of transitive package versions, not rules content, and
+    one that can never carry a printed-page citation. This is the exact diff shape that
+    blocked PR #82.
+    """
+
+    def test_rules_lock_file_alone_is_not_a_rules_surface(self):
+        self.assertFalse(
+            gate.rules_surface_touched("M\tsrc/Deckard.Rules/packages.lock.json\n")
+        )
+
+    def test_data_lock_file_alone_is_not_a_rules_surface(self):
+        self.assertFalse(
+            gate.rules_surface_touched("M\tsrc/Deckard.Data/packages.lock.json\n")
+        )
+
+    def test_rules_tests_lock_file_alone_is_not_a_rules_surface(self):
+        self.assertFalse(
+            gate.rules_surface_touched("M\ttests/Deckard.Rules.Tests/packages.lock.json\n")
+        )
+
+    def test_data_tests_lock_file_alone_is_not_a_rules_surface(self):
+        self.assertFalse(
+            gate.rules_surface_touched("M\ttests/Deckard.Data.Tests/packages.lock.json\n")
+        )
+
+    def test_dicepool_roll_still_counts(self):
+        """A real rules file, in the same directory the lock file lives in, must still
+        trip the gate -- the exclusion is by exact basename, not by directory."""
+        self.assertTrue(
+            gate.rules_surface_touched(
+                "M\tsrc/Deckard.Rules/Resolution/DicePoolRoll.cs\n"
+            )
+        )
+
+    def test_source_manifest_still_counts(self):
+        """The case most likely to break: a wider exclusion (e.g. "*.json") would also
+        swallow this file, which is deliberately part of the rules surface."""
+        self.assertTrue(gate.rules_surface_touched("M\t.github/source-manifest.json\n"))
+
+    def test_lock_file_does_not_hide_a_real_rules_file_in_the_same_diff(self):
+        """The blocked-PR shape: a lock file change riding alongside a genuine rules
+        change in the same `git diff --name-status` output must still trip the gate."""
+        self.assertTrue(
+            gate.rules_surface_touched(
+                "M\tsrc/Deckard.Rules/packages.lock.json\n"
+                "M\tsrc/Deckard.Rules/Resolution/DicePoolRoll.cs\n"
+            )
+        )
+
+    def test_rename_of_a_cs_file_into_a_rules_directory_still_counts(self):
+        """The rename/copy shape (`R100<TAB>old<TAB>new`) must survive the exclusion
+        check -- excluding by basename must not accidentally blind the rename handling."""
+        self.assertTrue(
+            gate.rules_surface_touched(
+                "R100\ttools/Foo.cs\tsrc/Deckard.Rules/Resolution/Foo.cs\n"
+            )
+        )
+
+    def test_rename_of_a_lock_file_into_a_rules_directory_does_not_count(self):
+        """A rename is just another way a path lands in the tree -- the destination
+        basename is still what gets excluded, whether the file is new or moved."""
+        self.assertFalse(
+            gate.rules_surface_touched(
+                "R100\ttools/packages.lock.json\tsrc/Deckard.Rules/packages.lock.json\n"
+            )
+        )
+
+
+class IndependentVerdictRequiredTests(unittest.TestCase):
+    def test_ordinary_issue_does_not_require_an_independent_verdict(self):
+        required, notes = gate.independent_verdict_required(["state:ready", "area:tooling"])
+        self.assertFalse(required)
         self.assertEqual(notes, [])
 
-    def test_risk_labelled_issue_requires_both(self):
-        contexts, notes = gate.required_contexts(["risk:rules-conformance"])
-        self.assertEqual(contexts, [IN_HOUSE, INDEPENDENT])
+    def test_risk_labelled_issue_requires_an_independent_verdict(self):
+        required, notes = gate.independent_verdict_required(["risk:rules-conformance"])
+        self.assertTrue(required)
         self.assertTrue(notes)
 
-    def test_unresolved_labels_fail_safe_to_requiring_both(self):
-        contexts, notes = gate.required_contexts(None)
-        self.assertEqual(contexts, [IN_HOUSE, INDEPENDENT])
+    def test_unresolved_labels_fail_safe_to_requiring_an_independent_verdict(self):
+        required, notes = gate.independent_verdict_required(None)
+        self.assertTrue(required)
         self.assertTrue(notes)
 
 
@@ -148,24 +220,96 @@ class EvaluateTests(unittest.TestCase):
         self.assertFalse(result.passed)
 
     def test_risk_label_with_only_in_house_verdict_is_blocked(self):
+        """Acceptance criterion: the gate FAILS with the in-house verdict alone."""
         result = gate.evaluate(RULES_FILE, ["risk:rules-conformance"], [status(IN_HOUSE)])
         self.assertFalse(result.passed)
-        self.assertIn(INDEPENDENT, " ".join(result.reasons))
+        self.assertIn("no independent verdict recorded", " ".join(result.reasons))
 
-    def test_risk_label_with_both_verdicts_passes(self):
+    def test_risk_label_passes_with_codex_as_the_independent_verdict(self):
+        """Acceptance criterion: passes for each of the three independent contexts."""
         result = gate.evaluate(
-            RULES_FILE, ["risk:rules-conformance"], [status(IN_HOUSE), status(INDEPENDENT)]
+            RULES_FILE, ["risk:rules-conformance"], [status(IN_HOUSE), status(CODEX)]
         )
-        self.assertTrue(result.passed)
+        self.assertTrue(result.passed, result.reasons)
+
+    def test_risk_label_passes_with_gemini_as_the_independent_verdict(self):
+        """Acceptance criterion: passes for each of the three independent contexts."""
+        result = gate.evaluate(
+            RULES_FILE, ["risk:rules-conformance"], [status(IN_HOUSE), status(GEMINI)]
+        )
+        self.assertTrue(result.passed, result.reasons)
+
+    def test_risk_label_passes_with_in_house_independent_as_the_fallback_verdict(self):
+        """Acceptance criterion: passes for each of the three independent contexts."""
+        result = gate.evaluate(
+            RULES_FILE, ["risk:rules-conformance"],
+            [status(IN_HOUSE), status(IN_HOUSE_INDEPENDENT)],
+        )
+        self.assertTrue(result.passed, result.reasons)
+
+    def test_a_generic_independent_context_is_not_accepted(self):
+        """The vendor-naming requirement (Issue #83): a collapsed, unnamed
+        'deckard-verdict/independent' context must not satisfy the gate -- only the
+        three explicitly named contexts in INDEPENDENT_CONTEXTS may."""
+        result = gate.evaluate(
+            RULES_FILE, ["risk:rules-conformance"],
+            [status(IN_HOUSE), status("deckard-verdict/independent")],
+        )
+        self.assertFalse(result.passed)
+
+    # -------------------- a recorded fail cannot be overridden by a later pass --------
+
+    def test_codex_fail_is_not_overridden_by_a_gemini_pass(self):
+        """Regression: an earlier version of evaluate() took the first PASSING context
+        in the chain and ignored the rest, so a recorded Codex FAIL could be cleared by
+        recording Gemini as a pass afterward. The chain advances on a vendor being
+        UNREACHABLE (absent), never on disagreement -- a vendor that answered was
+        available, so its fail is binding regardless of what another context says."""
+        result = gate.evaluate(
+            RULES_FILE, ["risk:rules-conformance"],
+            [status(IN_HOUSE), status(CODEX, state="failure"), status(GEMINI)],
+        )
+        self.assertFalse(result.passed)
+        reasons = " ".join(result.reasons)
+        self.assertIn(f"'{CODEX}' verdict for this head commit is 'failure', not success", reasons)
+        self.assertIn("does not override this recorded failure", reasons)
+
+    def test_codex_absent_and_gemini_pass_still_passes(self):
+        """Absence is not failure -- this is the whole point of the fallback chain.
+        Codex never having been invoked (no status recorded at all) must not block a
+        recorded Gemini pass."""
+        result = gate.evaluate(
+            RULES_FILE, ["risk:rules-conformance"], [status(IN_HOUSE), status(GEMINI)]
+        )
+        self.assertTrue(result.passed, result.reasons)
+
+    def test_codex_pass_then_gemini_fail_still_fails(self):
+        """Order must not matter: a recorded fail blocks the gate whether it was
+        recorded before or after a passing verdict at a different context."""
+        result = gate.evaluate(
+            RULES_FILE, ["risk:rules-conformance"],
+            [status(IN_HOUSE), status(CODEX), status(GEMINI, state="failure")],
+        )
+        self.assertFalse(result.passed)
+        reasons = " ".join(result.reasons)
+        self.assertIn(f"'{GEMINI}' verdict for this head commit is 'failure', not success", reasons)
+        self.assertIn("does not override this recorded failure", reasons)
+
+    def test_all_three_independent_contexts_absent_still_fails(self):
+        """Unchanged from before this fix: no independent verdict recorded anywhere in
+        the chain blocks the gate."""
+        result = gate.evaluate(RULES_FILE, ["risk:rules-conformance"], [status(IN_HOUSE)])
+        self.assertFalse(result.passed)
+        self.assertIn("no independent verdict recorded", " ".join(result.reasons))
 
     def test_non_risk_label_does_not_require_the_independent_verdict(self):
         result = gate.evaluate(RULES_FILE, ["area:tooling"], [status(IN_HOUSE)])
         self.assertTrue(result.passed)
 
-    def test_unresolved_labels_require_both_verdicts(self):
+    def test_unresolved_labels_require_an_independent_verdict_too(self):
         result = gate.evaluate(RULES_FILE, None, [status(IN_HOUSE)])
         self.assertFalse(result.passed)
-        self.assertIn(INDEPENDENT, " ".join(result.reasons))
+        self.assertIn("no independent verdict recorded", " ".join(result.reasons))
 
     def test_a_verdict_for_a_different_context_does_not_satisfy_the_requirement(self):
         result = gate.evaluate(RULES_FILE, ["state:ready"], [status("some-other-check")])
@@ -346,11 +490,14 @@ exit 1
         )
         self.assertEqual(only_in_house.returncode, 1, only_in_house.stdout)
 
-        both = self.run_cli(
-            "--pr", "9", issue_labels=["risk:rules-conformance"],
-            statuses=[status(IN_HOUSE), status(INDEPENDENT)],
-        )
-        self.assertEqual(both.returncode, 0, both.stdout)
+        # Any ONE of the three vendor-named independent contexts satisfies the gate.
+        for independent_context in (CODEX, GEMINI, IN_HOUSE_INDEPENDENT):
+            with self.subTest(context=independent_context):
+                result = self.run_cli(
+                    "--pr", "9", issue_labels=["risk:rules-conformance"],
+                    statuses=[status(IN_HOUSE), status(independent_context)],
+                )
+                self.assertEqual(result.returncode, 0, result.stdout)
 
     def test_offline_mode_needs_no_gh_at_all(self):
         changed = self.tmp / "changed.txt"

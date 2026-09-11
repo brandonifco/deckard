@@ -30,8 +30,21 @@ tools/lib/rules-surface.sh, the same file tools/review-packet.sh uses, so a revi
 packet and this gate can never disagree about what counts as rules work.
 
 For an Issue labelled risk:rules-conformance, a second, independent verdict is required
-too (docs/agent-team.md, AGENTS.md "Codex: independent rules conformance") -- the
-in-house agent's verdict alone is not enough for the mechanics this label exists to flag.
+too (docs/agent-team.md, AGENTS.md) -- the in-house agent's verdict alone is not enough
+for the mechanics this label exists to flag. That independent verdict is not pinned to
+one vendor: it follows an ordered fallback chain -- Codex, then Gemini, then an in-house
+second pass only when neither vendor is reachable (Issue #83, ADR
+0010-independent-verdict-fallback-chain.md). Each vendor posts to its own named context,
+so INDEPENDENT_CONTEXTS below is the set of acceptable contexts, not a single string.
+
+The chain advances on a vendor being UNREACHABLE, not on disagreement: the gate is
+satisfied by any ONE recorded pass among INDEPENDENT_CONTEXTS, but ONLY if no context in
+the chain has a recorded fail. A vendor that returned a verdict was available, so a later
+pass elsewhere may not silently overwrite an earlier fail -- that would let a fail be
+cleared by retrying against a different vendor, deciding disagreement by retry order
+instead of the source packet (docs/agent-team.md: "Where they disagree, the source
+packet decides -- not seniority, not the model, not the implementer's explanation").
+Only the ABSENCE of a verdict at a context may be skipped over.
 """
 from __future__ import annotations
 
@@ -50,7 +63,21 @@ RULES_SURFACE_LIB = ROOT / "tools" / "lib" / "rules-surface.sh"
 # Every verdict context this gate knows how to require. The reviewer name IS the context
 # suffix -- tools/record-verdict.sh posts to exactly one of these.
 IN_HOUSE_CONTEXT = "deckard-verdict/rules-conformance"
-INDEPENDENT_CONTEXT = "deckard-verdict/codex"
+
+# The independent verdict's ordered fallback chain (Issue #83, ADR
+# 0010-independent-verdict-fallback-chain.md): Codex first, then Gemini, then an in-house
+# second pass only when neither vendor is reachable. Each vendor posts to its own named
+# context rather than a shared generic one, so a reader of a merged commit's statuses can
+# tell a genuine cross-vendor verdict from a same-vendor fallback without opening a
+# transcript. Satisfied by ANY ONE of these being present and passing, on top of the
+# always-required IN_HOUSE_CONTEXT -- BUT a recorded fail at any context here blocks the
+# gate outright, even if another context in the chain passed. The chain advances on a
+# vendor being unreachable (absent), never on disagreement -- see evaluate().
+INDEPENDENT_CONTEXTS = (
+    "deckard-verdict/codex",
+    "deckard-verdict/gemini",
+    "deckard-verdict/in-house-independent",
+)
 RISK_LABEL = "risk:rules-conformance"
 
 # A verdict's `description` (the GitHub Statuses API field, <=140 chars) must name the
@@ -97,22 +124,55 @@ def rules_surface_touched(changed_files_name_status: str) -> bool:
     return result.returncode == 0
 
 
-def required_contexts(labels: list[str] | None) -> tuple[list[str], list[str]]:
-    """Returns (required_contexts, notes). `labels=None` means the linked Issue's labels
-    could not be determined -- fail SAFE by requiring the independent verdict too, rather
-    than silently accepting only the in-house one because a lookup happened to fail."""
-    notes: list[str] = []
-    contexts = [IN_HOUSE_CONTEXT]
+def independent_verdict_required(labels: list[str] | None) -> tuple[bool, list[str]]:
+    """Returns (required, notes). `labels=None` means the linked Issue's labels could not
+    be determined -- fail SAFE by requiring the independent verdict too, rather than
+    silently accepting only the in-house one because a lookup happened to fail."""
     if labels is None:
-        contexts.append(INDEPENDENT_CONTEXT)
-        notes.append(
-            "could not determine the linked Issue's labels; requiring the independent "
-            f"verdict ({INDEPENDENT_CONTEXT}) as a precaution"
+        return True, [
+            "could not determine the linked Issue's labels; requiring an independent "
+            f"verdict (any one of {', '.join(INDEPENDENT_CONTEXTS)}) as a precaution"
+        ]
+    if RISK_LABEL in labels:
+        return True, [
+            f"linked Issue is labelled {RISK_LABEL}: an independent verdict is required "
+            f"too (any one of {', '.join(INDEPENDENT_CONTEXTS)})"
+        ]
+    return False, []
+
+
+# The three states a checked context can be in. "absent" (no status recorded at this
+# context at all) is the only one a caller may skip over when walking the independent
+# fallback chain -- it means that vendor was simply never invoked. "fail" (a status IS
+# recorded but it is not a valid passing verdict -- wrong state, or a malformed
+# description) is a real, binding verdict: a vendor that answered was available, so its
+# answer stands. Collapsing "absent" and "fail" into one boolean (as an earlier version
+# of this function did) is exactly what let a recorded fail be overwritten by trying a
+# different vendor after it -- see evaluate().
+VERDICT_ABSENT = "absent"
+VERDICT_FAIL = "fail"
+VERDICT_PASS = "pass"
+
+
+def _check_verdict(context: str, by_context: dict) -> tuple[str, str]:
+    """Checks one context against the combined-status map. Returns (state, message) --
+    state is one of VERDICT_ABSENT / VERDICT_FAIL / VERDICT_PASS; message is a success
+    note when state is VERDICT_PASS, otherwise the specific reason it did not pass. The
+    same helper serves both the always-required in-house check and each attempt in the
+    independent-verdict fallback chain."""
+    status = by_context.get(context)
+    if status is None:
+        return VERDICT_ABSENT, f"no verdict recorded at '{context}' for this head commit"
+    state = status.get("state")
+    if state != "success":
+        return VERDICT_FAIL, f"'{context}' verdict for this head commit is '{state}', not success"
+    description = status.get("description") or ""
+    if not VERDICT_RE.search(description):
+        return VERDICT_FAIL, (
+            f"'{context}' verdict does not name a packet bodySha256 and page range "
+            f"(description: {description!r})"
         )
-    elif RISK_LABEL in labels:
-        contexts.append(INDEPENDENT_CONTEXT)
-        notes.append(f"linked Issue is labelled {RISK_LABEL}: independent verdict required too")
-    return contexts, notes
+    return VERDICT_PASS, f"'{context}': verified ({description})"
 
 
 def evaluate(
@@ -130,28 +190,43 @@ def evaluate(
             reasons=["no rules-surface file changed for this head commit; gate passes trivially"],
         )
 
-    contexts, notes = required_contexts(labels)
+    require_independent, notes = independent_verdict_required(labels)
     by_context = {s.get("context"): s for s in statuses}
     reasons: list[str] = list(notes)
     failures: list[str] = []
 
-    for ctx in contexts:
-        status = by_context.get(ctx)
-        if status is None:
-            failures.append(f"no verdict recorded at '{ctx}' for this head commit")
-            continue
-        state = status.get("state")
-        if state != "success":
-            failures.append(f"'{ctx}' verdict for this head commit is '{state}', not success")
-            continue
-        description = status.get("description") or ""
-        if not VERDICT_RE.search(description):
-            failures.append(
-                f"'{ctx}' verdict does not name a packet bodySha256 and page range "
-                f"(description: {description!r})"
+    in_house_state, in_house_msg = _check_verdict(IN_HOUSE_CONTEXT, by_context)
+    (reasons if in_house_state == VERDICT_PASS else failures).append(in_house_msg)
+
+    if require_independent:
+        # Any ONE context in the chain passing satisfies the requirement -- but a
+        # recorded fail at ANY context blocks the gate outright, even if a different
+        # context in the chain passed. Only VERDICT_ABSENT (that vendor was never
+        # invoked) may be skipped over; VERDICT_FAIL is a real, binding verdict from a
+        # vendor that WAS available, and a later pass elsewhere must not silently
+        # override it (docs/agent-team.md: "Where they disagree, the source packet
+        # decides"). Checking every context up front, rather than short-circuiting on
+        # the first pass, is what makes this order-independent: it does not matter
+        # whether the fail or the pass was recorded first, or which context is listed
+        # first in INDEPENDENT_CONTEXTS.
+        attempts = [(ctx, *_check_verdict(ctx, by_context)) for ctx in INDEPENDENT_CONTEXTS]
+        recorded_fails = [(ctx, msg) for ctx, state, msg in attempts if state == VERDICT_FAIL]
+        passing_msg = next((msg for _, state, msg in attempts if state == VERDICT_PASS), None)
+
+        if recorded_fails:
+            failures.extend(
+                f"{msg} -- a passing verdict at a different independent context does not "
+                "override this recorded failure"
+                for _, msg in recorded_fails
             )
-            continue
-        reasons.append(f"'{ctx}': verified ({description})")
+        elif passing_msg is not None:
+            reasons.append(passing_msg)
+        else:
+            failures.append(
+                "no independent verdict recorded at any of "
+                f"{', '.join(INDEPENDENT_CONTEXTS)} for this head commit"
+            )
+            failures.extend(msg for _, _, msg in attempts)
 
     if failures:
         reasons = failures + reasons

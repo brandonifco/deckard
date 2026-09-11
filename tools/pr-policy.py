@@ -24,11 +24,15 @@ A PR fails policy when:
 from __future__ import annotations
 
 import argparse
+import functools
 import json
 import re
 import subprocess
 import sys
 from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+RULES_SURFACE_LIB = ROOT / "tools" / "lib" / "rules-surface.sh"
 
 # Changing anything under these paths makes the PR "rules work", which means its
 # conformance section has to say what was verified against the book.
@@ -39,6 +43,30 @@ RULES_PATHS = (
     "tests/Deckard.Data.Tests/",
     ".github/source-manifest.json",
 )
+
+
+@functools.lru_cache(maxsize=1)
+def _rules_surface_excluded_basenames() -> frozenset[str]:
+    """Exact basenames that live under RULES_PATHS but carry no rules content -- e.g.
+    packages.lock.json, a NuGet lock file that must sit beside the project it locks
+    (Issue #86). Fetched from tools/lib/rules-surface.sh, the one place this list is
+    defined, so this file cannot keep its own copy and let the two drift apart."""
+    result = subprocess.run(
+        ["bash", str(RULES_SURFACE_LIB), "--print-excluded-basenames"],
+        capture_output=True, text=True, timeout=10, check=False,
+    )
+    if result.returncode != 0:
+        return frozenset()
+    return frozenset(line.strip() for line in result.stdout.splitlines() if line.strip())
+
+
+def rules_files_in(changed_files: list[str]) -> list[str]:
+    """Changed files that are rules surface: under RULES_PATHS and not an excluded
+    basename. The directory list stays here (Issue #86 is explicit that it does not
+    change); the exclusion list is fetched, not duplicated, from rules-surface.sh."""
+    excluded = _rules_surface_excluded_basenames()
+    return [f for f in changed_files if f.startswith(RULES_PATHS) and Path(f).name not in excluded]
+
 
 # Machine-generated dependency PRs have no Issue, no behavioural claim and no agent
 # provenance, and never will. They are still fully subject to build-and-test; what they
@@ -227,7 +255,7 @@ def check(body: str, changed_files: list[str], issue_labels, author: str | None 
             failures.append('"Tests and evidence" asserts success without showing output')
 
     # ------------------------------------------------------------ rules conformance
-    rules_files = [f for f in changed_files if f.startswith(RULES_PATHS)]
+    rules_files = rules_files_in(changed_files)
     if rules_files:
         conformance = section(sections, "Rules conformance")
         if is_effectively_empty(conformance):
@@ -327,7 +355,7 @@ def main(argv: list[str] | None = None) -> int:
                     "failureCount": len(failures),
                     "failures": failures,
                     "changedFiles": changed,
-                    "rulesFilesChanged": [f for f in changed if f.startswith(RULES_PATHS)],
+                    "rulesFilesChanged": rules_files_in(changed),
                 },
                 indent=2,
             ) + "\n",

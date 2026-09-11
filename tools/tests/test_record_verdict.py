@@ -103,12 +103,40 @@ exit 1
         self.assertIn("--reviewer is required", result.stderr)
 
     def test_reviewer_must_be_a_known_value(self):
+        """Acceptance criterion (Issue #83): record-verdict.sh rejects an unknown
+        --reviewer value."""
         result = self.run_script(
             "--sha", "abc1234", "--reviewer", "gpt", "--verdict", "pass",
             "--packet-sha256", GOOD_HASH, "--pages", "44-47",
         )
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("must be 'rules-conformance' or 'codex'", result.stderr)
+        self.assertIn(
+            "must be one of rules-conformance, codex, gemini, in-house-independent",
+            result.stderr,
+        )
+        self.assertEqual(self.gh_calls(), [])
+
+    def test_reviewer_accepts_gemini_as_a_fallback_independent_reviewer(self):
+        """Issue #83: the ordered fallback chain's second link."""
+        result = self.run_script(
+            "--sha", "abc1234def", "--reviewer", "gemini", "--verdict", "pass",
+            "--packet-sha256", GOOD_HASH, "--pages", "44-47",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        api_call = next(c for c in self.gh_calls() if c.startswith("api "))
+        self.assertIn("context=deckard-verdict/gemini", api_call)
+
+    def test_reviewer_accepts_in_house_independent_as_the_last_resort_fallback(self):
+        """Issue #83: the ordered fallback chain's third link -- named distinctly from
+        `rules-conformance` (the always-required first verdict) so a merged commit's
+        statuses show a same-vendor fallback occurred, rather than hiding it."""
+        result = self.run_script(
+            "--sha", "abc1234def", "--reviewer", "in-house-independent", "--verdict", "pass",
+            "--packet-sha256", GOOD_HASH, "--pages", "44-47",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        api_call = next(c for c in self.gh_calls() if c.startswith("api "))
+        self.assertIn("context=deckard-verdict/in-house-independent", api_call)
 
     def test_verdict_must_be_pass_or_fail(self):
         result = self.run_script(

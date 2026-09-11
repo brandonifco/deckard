@@ -356,6 +356,52 @@ class RulesConformanceTests(unittest.TestCase):
         self.assertEqual(pr_policy.check(GOOD, ["src/Deckard.Core/Pcg.cs"], no_labels), [])
 
 
+class PackagesLockFileTests(unittest.TestCase):
+    """Issue #86: NuGet's RestorePackagesWithLockFile writes packages.lock.json beside
+    each project file it locks, landing it under a rules-surface directory even though
+    it is a hash manifest of transitive package versions, not rules content, and can
+    never carry a printed-page citation. This is the exact case that blocked PR #82.
+    """
+
+    LOCK_FILES = [
+        "src/Deckard.Rules/packages.lock.json",
+        "src/Deckard.Data/packages.lock.json",
+        "tests/Deckard.Rules.Tests/packages.lock.json",
+        "tests/Deckard.Data.Tests/packages.lock.json",
+    ]
+
+    def test_lock_files_alone_do_not_require_rules_conformance(self):
+        for path in self.LOCK_FILES:
+            with self.subTest(path=path):
+                self.assertEqual(pr_policy.check(GOOD, [path], no_labels), [])
+
+    def test_rules_files_in_excludes_the_lock_files(self):
+        self.assertEqual(pr_policy.rules_files_in(self.LOCK_FILES), [])
+
+    def test_a_real_rules_file_alongside_a_lock_file_still_requires_conformance(self):
+        """The lock file must not hide a genuine rules change riding in the same diff."""
+        changed = ["src/Deckard.Rules/packages.lock.json", "src/Deckard.Rules/DiceTest.cs"]
+        failures = pr_policy.check(GOOD, changed, no_labels)
+        self.assertIn("says N/A", " ".join(failures))
+        self.assertEqual(pr_policy.rules_files_in(changed), ["src/Deckard.Rules/DiceTest.cs"])
+
+    def test_source_manifest_is_still_rules_work(self):
+        """The case most likely to break: a wider exclusion (e.g. by extension) would
+        also swallow .github/source-manifest.json, which must stay a rules surface."""
+        self.assertEqual(
+            pr_policy.rules_files_in([".github/source-manifest.json"]),
+            [".github/source-manifest.json"],
+        )
+        failures = pr_policy.check(GOOD, [".github/source-manifest.json"], no_labels)
+        self.assertIn("Rules conformance", " ".join(failures))
+
+    def test_a_dicepool_change_still_requires_conformance(self):
+        failures = pr_policy.check(
+            GOOD, ["src/Deckard.Rules/Resolution/DicePoolRoll.cs"], no_labels
+        )
+        self.assertIn("Rules conformance", " ".join(failures))
+
+
 class LinkedIssueCodeFenceTests(unittest.TestCase):
     """#52: PR #51 quoted a generated packet containing "Closes #38" as evidence for
     tools/review-packet.sh, and was failed for closing two Issues. Quoted text is not a

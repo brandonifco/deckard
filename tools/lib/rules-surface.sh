@@ -14,27 +14,81 @@
 # the status column and puts every remaining tab-separated field on its own line before
 # matching, so a rename in EITHER direction is visible to the anchored regex.
 #
+# Issue #86: a directory match alone is not enough. NuGet's RestorePackagesWithLockFile
+# requires a `packages.lock.json` to sit beside the project file it locks, so one lands
+# under src/Deckard.Rules/ etc. even though it carries no rules content and can never
+# have a printed-page citation. RULES_SURFACE_EXCLUDED_BASENAMES below is the narrow,
+# explicit fix: a path is a rules surface only when it matches the directory regex AND
+# its exact basename is not on that list. Basename-only, deliberately -- a pattern
+# (e.g. "*.json") would also swallow .github/source-manifest.json, which is deliberately
+# part of the rules surface and must stay one. Add an entry only when the file actually
+# exists in the tree, each with its own one-line reason.
+#
 # No `set -euo pipefail` at file scope: this file is normally `source`d, and a sourced
 # file's `set` calls change the CALLING shell's options too. Only the standalone-execution
 # branch at the bottom opts into strict mode, for itself alone.
 
 RULES_SURFACE_PATHS_REGEX='^(src/Deckard\.(Rules|Data)/|tests/Deckard\.(Rules|Data)\.Tests/|\.github/source-manifest\.json$)'
 
+RULES_SURFACE_EXCLUDED_BASENAMES=(
+  # NuGet's RestorePackagesWithLockFile (Issue #43) writes one packages.lock.json beside
+  # each project file it locks, landing it inside src/Deckard.Rules/, src/Deckard.Data/
+  # and their test projects. It records transitive package hashes, not rules content,
+  # and cannot carry a printed-page citation (Issue #86).
+  "packages.lock.json"
+)
+
+# rules_surface_excluded_basename <basename>
+# True (exit 0) when <basename> -- a bare file name, no directory component -- is on the
+# exclusion list above.
+rules_surface_excluded_basename() {
+  local base="$1" excluded
+  for excluded in "${RULES_SURFACE_EXCLUDED_BASENAMES[@]}"; do
+    if [[ "$base" == "$excluded" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+# rules_surface_path_matches <path>
+# True (exit 0) when <path> is inside a rules-surface directory (or is the pinned source
+# manifest) AND its exact basename is not excluded.
+rules_surface_path_matches() {
+  local path="$1"
+  [[ "$path" =~ $RULES_SURFACE_PATHS_REGEX ]] || return 1
+  ! rules_surface_excluded_basename "${path##*/}"
+}
+
 # rules_surface_touched <name-status-text>
 # $1: the full output of `git diff --name-status <range>`. Returns success (0, "yes, a
 # rules surface changed") or failure (1, "no") as its exit code -- the same convention
 # `grep -q` uses, so callers can write `if rules_surface_touched "$changed_files"; then`.
 rules_surface_touched() {
-  cut -f2- <<<"$1" | tr '\t' '\n' | grep -qE "$RULES_SURFACE_PATHS_REGEX"
+  local path
+  while IFS= read -r path; do
+    [[ -z "$path" ]] && continue
+    if rules_surface_path_matches "$path"; then
+      return 0
+    fi
+  done < <(cut -f2- <<<"$1" | tr '\t' '\n')
+  return 1
 }
 
-# Standalone use, for a non-bash caller (tools/rules-conformance-gate.py) that wants this
-# exact logic without duplicating it: reads `git diff --name-status` text from stdin,
-# exits 0 when a rules surface changed, 1 when it did not. Only runs when this file is
-# executed directly, not when it is `source`d (bash sets $0 to the sourcing script's own
-# path in that case, which never equals ${BASH_SOURCE[0]} here).
+# Standalone use, for a non-bash caller (tools/rules-conformance-gate.py, tools/pr-policy.py)
+# that wants this exact logic without duplicating it: reads `git diff --name-status` text
+# from stdin, exits 0 when a rules surface changed, 1 when it did not. `--print-excluded-
+# basenames` instead prints the exclusion list above, one name per line, for a caller
+# (tools/pr-policy.py) that needs the list itself rather than a single yes/no verdict.
+# Only runs when this file is executed directly, not when it is `source`d (bash sets $0
+# to the sourcing script's own path in that case, which never equals ${BASH_SOURCE[0]}
+# here).
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
   set -euo pipefail
+  if [[ "${1:-}" == "--print-excluded-basenames" ]]; then
+    printf '%s\n' "${RULES_SURFACE_EXCLUDED_BASENAMES[@]}"
+    exit 0
+  fi
   input="$(cat)"
   rules_surface_touched "$input"
 fi
