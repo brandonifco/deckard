@@ -73,6 +73,25 @@ limit), so keeping exactly one copy is the only thing preventing that drift here
 Tell the agent precisely which guide and which packet file to read. Never tell an agent
 to "search the repository for the documentation."
 
+## PR body length
+
+A PR body is read many times after it merges — a reviewer reads it, a later agent
+rediscovers it while working out why something is the way it is, an audit ingests it
+again. Durable design rationale written only into a PR body is rationale nobody can find
+later without knowing which PR to open.
+
+The target length, and where the overflow belongs, are stated once, in the comment at
+the top of `.github/pull_request_template.md` — restating the figure here as well would
+be a second copy of the same fact, free to drift the moment either one changes. Read the
+template for the number.
+
+In short: durable design rationale a future reader would need goes in an ADR; acceptance
+criteria and scope stay in the Issue, where they already are; detailed test enumeration
+and validation output belongs in a generated artifact or the CI run, not pasted prose.
+The PR body itself answers what changed, why, what was verified, and what remains — not
+an engineering report. There is deliberately no mechanical word-count check: it would be
+gamed by shorter sentences and would fire on the genuinely large PR that earns the space.
+
 ## Recording a verdict
 
 A review that only exists in a chat transcript is a claim the PR makes about itself —
