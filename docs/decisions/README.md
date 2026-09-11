@@ -44,3 +44,4 @@ trail survives.
 | [0005](0005-replay-compatibility-identity.md) | Replay compatibility identity | Accepted |
 | [0006](0006-deterministic-ordering-conventions.md) | Deterministic ordering conventions for observable sequences | Accepted |
 | [0007](0007-opposed-test-tie-break-interpretation.md) | Opposed test tie-break: aggressor mapped to the acting side | Accepted |
+| [0008](0008-round-cap-scoped-to-combat-rounds.md) | Edge's bonus-gain cap applies only inside a combat round | Accepted |
