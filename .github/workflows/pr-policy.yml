@@ -23,7 +23,11 @@ permissions:
 
 jobs:
   pr-policy:
-    runs-on: ubuntu-latest
+    # Pinned, not the rolling `ubuntu-latest` alias -- see build-and-test.yml for why
+    # tracking a moving image is avoided repo-wide (#43). This job only runs a Python
+    # policy check against the GitHub API, so the pin is about not silently changing
+    # the OS/Python this runs on, not about a build toolchain living on the image.
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Checkout
