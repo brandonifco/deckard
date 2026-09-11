@@ -12,6 +12,12 @@
 # `full` must not require network access beyond ordinary NuGet restore, and must not
 # require the authoritative rulebook: the tooling tests are hermetic on purpose so that
 # CI can prove the source boundary without ever possessing a copy of the book.
+#
+# `full` also builds and tests once with CI=true set (see "CI parity" below), the same
+# env var .github/workflows/build-and-test.yml sets, because CI builds under a
+# different MSBuild configuration than every local shell and agent worktree
+# (ContinuousIntegrationBuild, Directory.Build.props) and a test sensitive to that can
+# otherwise pass here and fail on every CI run (#48).
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -158,6 +164,24 @@ if [[ "$MODE" != "fast" ]]; then
     run "test Release" dotnet test "$SOLUTION" -c Release --no-build --nologo || true
   else
     skipped "test Release"
+  fi
+
+  # --------------------------------------------------- build + test (CI parity)
+  # CI sets CI=true (.github/workflows/build-and-test.yml), which flips
+  # ContinuousIntegrationBuild on via Directory.Build.props. That property enables
+  # deterministic source paths, rewriting compile-time source paths to `/_/...`, which
+  # changes the value of anything derived from them: [CallerFilePath], StackTrace file
+  # paths. Neither pass above exercises that -- local shells and every agent worktree
+  # run with CI unset -- so a test that depends on it can pass here and fail on every
+  # CI run (#48). Reproduce CI's own env var, not an equivalent MSBuild property, so
+  # this pass is exactly what CI does rather than something merely similar to it.
+  # Debug, not Release: this pass exists to exercise the CI-conditional property, not
+  # to re-run the optimisation-level check Release above already covers.
+  step "Build + test (CI parity, CI=true)"
+  if run "build Debug w/ CI=true (0 warnings)" env CI=true dotnet build "$SOLUTION" -c Debug --no-restore -warnaserror; then
+    run "test Debug w/ CI=true" env CI=true dotnet test "$SOLUTION" -c Debug --no-build --nologo || true
+  else
+    skipped "test Debug w/ CI=true"
   fi
 fi
 
