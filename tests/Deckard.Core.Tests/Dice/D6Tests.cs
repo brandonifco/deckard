@@ -13,13 +13,15 @@ namespace Deckard.Core.Tests.Dice;
 /// would answer differently than the real implementation, and ordered N-dice results with
 /// their draw count pinned.
 ///
-/// The domain-boundary numbers used throughout are computed independently of
-/// <see cref="D6"/>'s own <c>AcceptanceLimit</c> constant, as literals derived the same
-/// way Issue #3 itself derives them: 2^32 = 4,294,967,296 = 6 x 715,827,882 + 4, so the
-/// largest multiple of 6 not exceeding <c>uint.MaxValue</c> is 4,294,967,292, and the four
-/// raw values 4,294,967,292 through <c>uint.MaxValue</c> (4,294,967,295) are the entire
-/// rejected tail -- not recomputed from production code, so a shared bug in both places
-/// could not hide behind agreement between them.
+/// The domain-boundary numbers used throughout are literals, independent of
+/// <see cref="D6"/>'s own <c>AcceptanceLimit</c> constant: 2^32 = 4,294,967,296 =
+/// 6 x 715,827,882 + 4, so the largest multiple of 6 not exceeding <c>uint.MaxValue</c>
+/// is 4,294,967,292, and the four raw values 4,294,967,292 through <c>uint.MaxValue</c>
+/// (4,294,967,295) are the entire rejected tail -- not recomputed from production code,
+/// so a shared bug in both places could not hide behind agreement between them.
+/// <see cref="The_rejected_tail_is_exactly_what_2_to_the_32_mod_6_computes_it_to_be"/>
+/// is what actually performs that arithmetic and checks these literals against it,
+/// rather than leaving 2^32 mod 6 = 4 as a claim this comment makes but nothing computes.
 /// </summary>
 public sealed class D6Tests
 {
@@ -166,18 +168,32 @@ public sealed class D6Tests
     }
 
     [Fact]
-    public void Every_value_in_the_rejected_tail_is_accounted_for_by_2_to_the_32_mod_6()
+    public void The_rejected_tail_is_exactly_what_2_to_the_32_mod_6_computes_it_to_be()
     {
-        // Cross-checks that RejectedRawValues really is the complete rejected set implied
-        // by the Issue's own arithmetic (2^32 mod 6 = 4), rather than a hand-picked few
-        // values that happen to pass: the four rejected raws are exactly
-        // [AcceptanceLimit, uint.MaxValue], contiguous and none missing or extra.
-        Assert.Equal(4, RejectedRawValues.Length);
-        Assert.Equal(AcceptanceLimit, RejectedRawValues[0]);
-        Assert.Equal(uint.MaxValue, RejectedRawValues[^1]);
+        // Actually computes 2^32 mod 6, rather than restating it: AcceptanceLimit and
+        // RejectedRawValues above are hand-typed literals, and comparing them only to
+        // each other -- as an earlier version of this test did -- proves nothing beyond
+        // internal self-consistency of this file. 2^32 does not fit in a uint, so a
+        // ulong carries it long enough to take the mod; everything derived from that
+        // point on is compared against the fixtures above, not asserted independently of
+        // them, so a wrong AcceptanceLimit or a wrong RejectedRawValues entry now fails
+        // this test instead of being silently confirmed by it.
+        const ulong domainSize = 1UL << 32;
+        uint remainder = (uint)(domainSize % 6);
+        uint derivedAcceptanceLimit = (uint)(domainSize - remainder);
+        uint derivedFirstRejectedValue = derivedAcceptanceLimit;
+        uint derivedLastRejectedValue = (uint)(domainSize - 1);
+
+        // The magnitude this whole Issue rests on, computed rather than quoted.
+        Assert.Equal(4u, remainder);
+
+        Assert.Equal(AcceptanceLimit, derivedAcceptanceLimit);
+        Assert.Equal((int)remainder, RejectedRawValues.Length);
+        Assert.Equal(derivedFirstRejectedValue, RejectedRawValues[0]);
+        Assert.Equal(derivedLastRejectedValue, RejectedRawValues[^1]);
         for (int i = 0; i < RejectedRawValues.Length; i++)
         {
-            Assert.Equal(AcceptanceLimit + (uint)i, RejectedRawValues[i]);
+            Assert.Equal(derivedFirstRejectedValue + (uint)i, RejectedRawValues[i]);
         }
     }
 
