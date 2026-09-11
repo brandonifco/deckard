@@ -161,6 +161,72 @@ class RulesSurfaceLockFileExclusionTests(unittest.TestCase):
         )
 
 
+class RulesSurfaceTouchedFailureTests(unittest.TestCase):
+    """Issue #89 follow-up: rules_surface_touched()'s own contract for the library's
+    no-flag mode is exit 0 = "yes" and exit 1 = "no" -- both legitimate answers. Before
+    this fix, `result.returncode == 0` collapsed EVERY other exit code (a bash syntax
+    error, the interpreter or script missing, a hang) into False alongside the legitimate
+    "1 = no", which is the identical fail-open shape tools/pr-policy.py's
+    RulesSurfaceClassifierError fixes: this gate would report "no rules-surface file
+    changed; gate passes trivially" for a PR that actually touched one, because its own
+    classifier broke. A required merge gate must not read its own failure to answer as an
+    answer of "no".
+    """
+
+    def setUp(self):
+        self.original_lib = gate.RULES_SURFACE_LIB
+        self.original_timeout = gate.TOUCHED_TIMEOUT_SECONDS
+        self.tmpdir = tempfile.mkdtemp(prefix="deckard-gate-rules-surface-broken-")
+        self.addCleanup(shutil.rmtree, self.tmpdir, ignore_errors=True)
+        self.addCleanup(setattr, gate, "RULES_SURFACE_LIB", self.original_lib)
+        self.addCleanup(setattr, gate, "TOUCHED_TIMEOUT_SECONDS", self.original_timeout)
+
+    def _install_script(self, contents: str) -> Path:
+        path = Path(self.tmpdir) / "broken-rules-surface.sh"
+        path.write_text(contents, encoding="utf-8")
+        gate.RULES_SURFACE_LIB = path
+        return path
+
+    def test_an_exit_code_outside_0_and_1_raises_naming_the_script_and_stderr(self):
+        self._install_script("#!/usr/bin/env bash\necho 'boom' >&2\nexit 2\n")
+        with self.assertRaises(RuntimeError) as ctx:
+            gate.rules_surface_touched(RULES_FILE)
+        message = str(ctx.exception)
+        self.assertIn(str(gate.RULES_SURFACE_LIB), message)
+        self.assertIn("2", message)
+        self.assertIn("boom", message)
+
+    def test_broken_classifier_does_not_read_as_no_rules_surface_touched(self):
+        """The exact scenario the defect names: a rules-file diff must not be silently
+        treated as untouched when the classifier itself is broken."""
+        self._install_script("#!/usr/bin/env bash\nexit 127\n")
+        with self.assertRaises(RuntimeError):
+            gate.rules_surface_touched(RULES_FILE)
+
+    def test_missing_script_raises_naming_the_path(self):
+        gate.RULES_SURFACE_LIB = Path(self.tmpdir) / "does-not-exist.sh"
+        with self.assertRaises(RuntimeError) as ctx:
+            gate.rules_surface_touched(RULES_FILE)
+        self.assertIn(str(gate.RULES_SURFACE_LIB), str(ctx.exception))
+
+    def test_timeout_raises_a_clear_error_instead_of_an_unhandled_traceback(self):
+        self._install_script("#!/usr/bin/env bash\nsleep 5\n")
+        gate.TOUCHED_TIMEOUT_SECONDS = 0.2
+        with self.assertRaises(RuntimeError) as ctx:
+            gate.rules_surface_touched(RULES_FILE)
+        message = str(ctx.exception)
+        self.assertIn(str(gate.RULES_SURFACE_LIB), message)
+        self.assertIn("timed out", message)
+
+    def test_legitimate_yes_and_no_are_unaffected_by_the_fix(self):
+        """Exit 0 and exit 1 are the library's real, designed contract -- not failures --
+        and must still resolve normally, not raise."""
+        self._install_script("#!/usr/bin/env bash\nexit 0\n")
+        self.assertTrue(gate.rules_surface_touched(RULES_FILE))
+        self._install_script("#!/usr/bin/env bash\nexit 1\n")
+        self.assertFalse(gate.rules_surface_touched(RULES_FILE))
+
+
 class IndependentVerdictRequiredTests(unittest.TestCase):
     def test_ordinary_issue_does_not_require_an_independent_verdict(self):
         required, notes = gate.independent_verdict_required(["state:ready", "area:tooling"])
@@ -508,14 +574,25 @@ exit 1
         # A PATH built by directory (e.g. just python3's own /usr/bin) would still carry
         # the real `gh` in this environment -- bash, gh and python3 all live in
         # /usr/bin here. So build a directory containing ONLY symlinks to `bash` (which
-        # rules_surface_touched() needs) and the interpreter, with no `gh` anywhere on
-        # it: if any code path in this run tried to shell out to `gh`, it would fail
-        # with FileNotFoundError rather than silently reaching the real one.
+        # rules_surface_touched() needs), the coreutils tools/lib/rules-surface.sh's
+        # default streaming mode shells out to (`cat`, `cut`, `tr`), and the interpreter,
+        # with no `gh` anywhere on it: if any code path in this run tried to shell out to
+        # `gh`, it would fail with FileNotFoundError rather than silently reaching the
+        # real one. `cat`/`cut`/`tr` must be present precisely because
+        # rules_surface_touched() now fails LOUDLY (Issue #89 follow-up) when the
+        # classifier can't run at all -- omitting them used to be masked by the fail-open
+        # bug that fix closed (any non-zero exit, including "cut: command not found",
+        # silently read as "no rules surface touched," which this PASS's rules-file input
+        # would not have exposed either way).
         path_without_gh = self.tmp / "path-without-gh"
         path_without_gh.mkdir()
         bash_path = shutil.which("bash")
         assert bash_path, "bash must be on PATH for this test to mean anything"
         os.symlink(bash_path, path_without_gh / "bash")
+        for tool in ("cat", "cut", "tr"):
+            tool_path = shutil.which(tool)
+            assert tool_path, f"{tool} must be on PATH for this test to mean anything"
+            os.symlink(tool_path, path_without_gh / tool)
         os.symlink(sys.executable, path_without_gh / Path(sys.executable).name)
 
         env = dict(os.environ)

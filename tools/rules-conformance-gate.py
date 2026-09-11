@@ -60,6 +60,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 RULES_SURFACE_LIB = ROOT / "tools" / "lib" / "rules-surface.sh"
 
+# A module-level constant, not a literal in the subprocess.run() call, so a test can
+# monkeypatch it down to something short and force a real subprocess.TimeoutExpired
+# without the test suite paying for the full timeout.
+TOUCHED_TIMEOUT_SECONDS = 10
+
 # Every verdict context this gate knows how to require. The reviewer name IS the context
 # suffix -- tools/record-verdict.sh posts to exactly one of these.
 IN_HOUSE_CONTEXT = "deckard-verdict/rules-conformance"
@@ -114,14 +119,41 @@ class GateResult:
 def rules_surface_touched(changed_files_name_status: str) -> bool:
     """Delegates to tools/lib/rules-surface.sh -- the one definition, shared with
     tools/review-packet.sh. See that file for why a naive regex over `git diff
-    --name-status` text misses a rename."""
-    result = subprocess.run(
-        ["bash", str(RULES_SURFACE_LIB)],
-        input=changed_files_name_status,
-        capture_output=True,
-        text=True,
-        timeout=10,
-    )
+    --name-status` text misses a rename.
+
+    The library's own contract for this (no-flag) mode is exit 0 = "yes, a rules surface
+    changed", exit 1 = "no, it did not" -- both are legitimate answers, by design, the
+    same convention `grep -q` uses. Anything else -- a bash syntax error, the interpreter
+    or the script itself unreachable, a hang -- is not a "no"; it is the classifier
+    failing to answer at all, and this gate is a required merge check, so that failure
+    must not be read as if it had reached a real verdict. `result.returncode == 0` used to
+    collapse every non-zero code (the legitimate "1 = no" alongside any genuine crash)
+    into False, which is the same fail-open shape Issue #89's follow-up fixed in
+    tools/pr-policy.py's RulesSurfaceClassifierError -- fixed here for the same reason.
+    """
+    try:
+        result = subprocess.run(
+            ["bash", str(RULES_SURFACE_LIB)],
+            input=changed_files_name_status,
+            capture_output=True,
+            text=True,
+            timeout=TOUCHED_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(
+            f"{RULES_SURFACE_LIB} timed out after {exc.timeout}s; cannot determine "
+            "whether a rules surface changed -- refusing to guess."
+        ) from exc
+    except OSError as exc:
+        # Covers FileNotFoundError (bash itself, or RULES_SURFACE_LIB, missing) and any
+        # other failure to even start the subprocess.
+        raise RuntimeError(f"could not run {RULES_SURFACE_LIB}: {exc}") from exc
+    if result.returncode not in (0, 1):
+        stderr = result.stderr.strip() or "(no stderr)"
+        raise RuntimeError(
+            f"{RULES_SURFACE_LIB} exited {result.returncode} (expected 0 or 1), cannot "
+            f"determine whether a rules surface changed: {stderr}"
+        )
     return result.returncode == 0
 
 

@@ -11,7 +11,9 @@ things are tested here that are easy to get wrong:
 from __future__ import annotations
 
 import importlib.util
+import shutil
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -400,6 +402,195 @@ class PackagesLockFileTests(unittest.TestCase):
             GOOD, ["src/Deckard.Rules/Resolution/DicePoolRoll.cs"], no_labels
         )
         self.assertIn("Rules conformance", " ".join(failures))
+
+
+class RulesSurfaceClassificationTests(unittest.TestCase):
+    """Issue #89: pr-policy.py no longer holds its own RULES_PATHS tuple -- rules_files_in
+    asks tools/lib/rules-surface.sh (via its --classify mode) instead of matching a local
+    copy. This is the representative classification set the Issue's acceptance criteria
+    name explicitly: one file under each rules-surface directory, the pinned source
+    manifest, packages.lock.json in each of the four project directories (Issue #86's
+    exclusion), and a non-rules file -- checked both together, in the single call
+    pr-policy.py itself makes, and individually.
+    """
+
+    RULES_SURFACE_FILES = [
+        ".github/source-manifest.json",
+        "src/Deckard.Rules/DicePoolRoll.cs",
+        "src/Deckard.Data/Skills.json",
+        "tests/Deckard.Rules.Tests/DicePoolRollTests.cs",
+        "tests/Deckard.Data.Tests/SkillsTests.cs",
+    ]
+
+    LOCK_FILES = [
+        "src/Deckard.Rules/packages.lock.json",
+        "src/Deckard.Data/packages.lock.json",
+        "tests/Deckard.Rules.Tests/packages.lock.json",
+        "tests/Deckard.Data.Tests/packages.lock.json",
+    ]
+
+    NON_RULES_FILES = ["tools/foo.py", "docs/bar.md"]
+
+    def test_full_classification_set_in_one_call(self):
+        """The whole representative set, in one rules_files_in() call -- exactly how
+        pr-policy.py itself uses it -- must return only the rules-surface entries, in
+        their original order, with the lock files and non-rules files excluded."""
+        changed = self.RULES_SURFACE_FILES + self.LOCK_FILES + self.NON_RULES_FILES
+        self.assertEqual(pr_policy.rules_files_in(changed), self.RULES_SURFACE_FILES)
+
+    def test_each_rules_surface_file_alone_classifies_as_rules_work(self):
+        for path in self.RULES_SURFACE_FILES:
+            with self.subTest(path=path):
+                self.assertEqual(pr_policy.rules_files_in([path]), [path])
+
+    def test_each_lock_file_alone_is_excluded(self):
+        for path in self.LOCK_FILES:
+            with self.subTest(path=path):
+                self.assertEqual(pr_policy.rules_files_in([path]), [])
+
+    def test_each_non_rules_file_alone_is_excluded(self):
+        for path in self.NON_RULES_FILES:
+            with self.subTest(path=path):
+                self.assertEqual(pr_policy.rules_files_in([path]), [])
+
+
+class SingleEditPropagationTests(unittest.TestCase):
+    """Issue #89's central acceptance criterion, and the test that would have caught the
+    original drift: a change to the rules-surface directory definition in
+    tools/lib/rules-surface.sh ALONE -- no second edit to pr-policy.py -- must be picked
+    up by rules_files_in(). Proven by actually varying the definition (a temp copy of the
+    library with a widened directory regex, with pr_policy.RULES_SURFACE_LIB monkeypatched
+    to point at it) rather than asserting the sharing in prose. Two definitions that only
+    happen to agree today, as before this Issue, would pass every other test in this file
+    and still fail the one below.
+    """
+
+    NEEDLE = "(Rules|Data)/"
+    REPLACEMENT = "(Rules|Data|Foo)/"
+    NEW_DIR_FILE = "src/Deckard.Foo/Thing.cs"
+
+    def setUp(self):
+        self.original_lib = pr_policy.RULES_SURFACE_LIB
+        self.original_text = self.original_lib.read_text(encoding="utf-8")
+        self.assertIn(
+            self.NEEDLE, self.original_text,
+            "fixture assumption broken: rules-surface.sh no longer spells the directory "
+            "regex the way this test expects to widen it",
+        )
+        self.tmpdir = tempfile.mkdtemp(prefix="deckard-rules-surface-")
+        self.addCleanup(shutil.rmtree, self.tmpdir, ignore_errors=True)
+        self.addCleanup(setattr, pr_policy, "RULES_SURFACE_LIB", self.original_lib)
+        self.addCleanup(pr_policy._classify_rules_surface.cache_clear)
+
+    def _install(self, lib_text: str) -> None:
+        lib_path = Path(self.tmpdir) / "rules-surface.sh"
+        lib_path.write_text(lib_text, encoding="utf-8")
+        pr_policy.RULES_SURFACE_LIB = lib_path
+        pr_policy._classify_rules_surface.cache_clear()
+
+    def test_control_stock_definition_does_not_classify_the_new_directory(self):
+        """Control for the test below: an unmodified copy of the real library must NOT
+        already treat src/Deckard.Foo/ as a rules surface, or the widening test would
+        pass for the wrong reason."""
+        self._install(self.original_text)
+        self.assertEqual(pr_policy.rules_files_in([self.NEW_DIR_FILE]), [])
+
+    def test_widening_the_directory_regex_alone_is_picked_up_with_no_pr_policy_edit(self):
+        """Vary ONLY the copy of tools/lib/rules-surface.sh pr-policy.py is pointed at --
+        pr-policy.py's own source is never touched -- and confirm the new directory is
+        classified as a rules surface purely as a result of that one edit."""
+        widened = self.original_text.replace(self.NEEDLE, self.REPLACEMENT, 1)
+        self.assertNotEqual(widened, self.original_text)
+        self._install(widened)
+        self.assertEqual(pr_policy.rules_files_in([self.NEW_DIR_FILE]), [self.NEW_DIR_FILE])
+
+
+class RulesSurfaceClassifierFailureTests(unittest.TestCase):
+    """A broken or unreachable rules-surface.sh must fail pr-policy LOUDLY, not silently
+    classify every changed file as "not a rules surface". Before this fix,
+    `_classify_rules_surface` swallowed a non-zero exit (or a missing interpreter/script,
+    or a timeout) into an empty frozenset -- inherited from #86, where an empty result was
+    safe because the subprocess only ever supplied the exclusion list. Once it supplies
+    the WHOLE classification, an empty result silently skips "Rules conformance" entirely
+    for a PR that rewrites the rules engine, and pr-policy reports PASS while doing it.
+    CLAUDE.md's "fail visibly" invariant forbids exactly this: an unresolved check must
+    never do nothing or invent a default -- doubly so in a required merge gate, where
+    silence reads as approval.
+    """
+
+    RULES_FILE = ["src/Deckard.Rules/DiceTest.cs"]
+
+    def setUp(self):
+        self.original_lib = pr_policy.RULES_SURFACE_LIB
+        self.original_timeout = pr_policy.CLASSIFY_TIMEOUT_SECONDS
+        self.tmpdir = tempfile.mkdtemp(prefix="deckard-rules-surface-broken-")
+        self.addCleanup(shutil.rmtree, self.tmpdir, ignore_errors=True)
+        self.addCleanup(setattr, pr_policy, "RULES_SURFACE_LIB", self.original_lib)
+        self.addCleanup(setattr, pr_policy, "CLASSIFY_TIMEOUT_SECONDS", self.original_timeout)
+        self.addCleanup(pr_policy._classify_rules_surface.cache_clear)
+        pr_policy._classify_rules_surface.cache_clear()
+
+    def _install_script(self, contents: str) -> Path:
+        path = Path(self.tmpdir) / "broken-rules-surface.sh"
+        path.write_text(contents, encoding="utf-8")
+        pr_policy.RULES_SURFACE_LIB = path
+        pr_policy._classify_rules_surface.cache_clear()
+        return path
+
+    def test_nonzero_exit_raises_with_the_script_path_exit_code_and_stderr(self):
+        self._install_script("#!/usr/bin/env bash\necho 'boom' >&2\nexit 3\n")
+        with self.assertRaises(pr_policy.RulesSurfaceClassifierError) as ctx:
+            pr_policy.rules_files_in(self.RULES_FILE)
+        message = str(ctx.exception)
+        self.assertIn(str(pr_policy.RULES_SURFACE_LIB), message)
+        self.assertIn("3", message)
+        self.assertIn("boom", message)
+
+    def test_nonzero_exit_does_not_report_the_pr_as_having_no_rules_files(self):
+        """The exact scenario the defect names: a PR touching src/Deckard.Rules/ must not
+        be silently treated as touching nothing when the classifier is broken."""
+        self._install_script("#!/usr/bin/env bash\nexit 1\n")
+        with self.assertRaises(pr_policy.RulesSurfaceClassifierError):
+            pr_policy.rules_files_in(self.RULES_FILE)
+        # Confirm it did not, in fact, get cached as an empty (i.e. "no rules files")
+        # result -- the exception must be the only outcome, every time.
+        with self.assertRaises(pr_policy.RulesSurfaceClassifierError):
+            pr_policy.rules_files_in(self.RULES_FILE)
+
+    def test_check_does_not_silently_pass_when_the_classifier_is_broken(self):
+        """check() must not swallow the failure into an ordinary policy failure (still a
+        reached, reportable verdict) or, worse, a silent PASS -- it must not reach a
+        verdict at all."""
+        self._install_script("#!/usr/bin/env bash\nexit 1\n")
+        with self.assertRaises(pr_policy.RulesSurfaceClassifierError):
+            pr_policy.check(GOOD, self.RULES_FILE, no_labels)
+
+    def test_missing_script_raises_naming_the_path(self):
+        pr_policy.RULES_SURFACE_LIB = Path(self.tmpdir) / "does-not-exist.sh"
+        pr_policy._classify_rules_surface.cache_clear()
+        with self.assertRaises(pr_policy.RulesSurfaceClassifierError) as ctx:
+            pr_policy.rules_files_in(self.RULES_FILE)
+        self.assertIn(str(pr_policy.RULES_SURFACE_LIB), str(ctx.exception))
+
+    def test_timeout_raises_a_clear_error_instead_of_a_stack_trace(self):
+        self._install_script("#!/usr/bin/env bash\nsleep 5\n")
+        pr_policy.CLASSIFY_TIMEOUT_SECONDS = 0.2
+        with self.assertRaises(pr_policy.RulesSurfaceClassifierError) as ctx:
+            pr_policy.rules_files_in(self.RULES_FILE)
+        message = str(ctx.exception)
+        self.assertIn(str(pr_policy.RULES_SURFACE_LIB), message)
+        self.assertIn("timed out", message)
+
+    def test_a_working_script_after_a_failure_is_not_stuck_on_a_cached_error(self):
+        """functools.lru_cache never caches a raised exception -- confirm a later, working
+        call for the SAME input is retried rather than permanently poisoned."""
+        self._install_script("#!/usr/bin/env bash\nexit 1\n")
+        with self.assertRaises(pr_policy.RulesSurfaceClassifierError):
+            pr_policy.rules_files_in(self.RULES_FILE)
+        self._install_script(
+            "#!/usr/bin/env bash\nwhile IFS= read -r p; do printf '%s\\n' \"$p\"; done\n"
+        )
+        self.assertEqual(pr_policy.rules_files_in(self.RULES_FILE), self.RULES_FILE)
 
 
 class LinkedIssueCodeFenceTests(unittest.TestCase):
