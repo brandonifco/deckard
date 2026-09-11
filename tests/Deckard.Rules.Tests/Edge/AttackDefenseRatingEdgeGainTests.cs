@@ -5,8 +5,8 @@ namespace Deckard.Rules.Tests.Edge;
 
 /// <summary>
 /// Pins <see cref="AttackDefenseRatingEdgeGain"/> against SR6 Core / Game Concepts / Edge
-/// / Gaining Edge / printed p. 45 / PDF p. 46: "If either is 4 or more greater than the
-/// other, that player gets a point of Edge."
+/// / printed p. 45 / PDF p. 46: "If either is 4 or more greater than the other, that
+/// player gets a point of Edge."
 /// </summary>
 public sealed class AttackDefenseRatingEdgeGainTests
 {
