@@ -412,5 +412,145 @@ class SourceSliceTests(unittest.TestCase):
         return module
 
 
+class WorktreeLocalConfigTests(unittest.TestCase):
+    """#57: `source.local.json` lives in the primary checkout; every worktree must see it.
+
+    The tool used to resolve `source.local.json` against its own script's parent
+    directory -- the checkout it happened to be running from. A worktree is its own
+    root, so a file created in the primary checkout was invisible from every worktree,
+    which is the one place CLAUDE.md requires implementation to happen.
+
+    This builds a real, independent primary checkout + linked worktree (not the one
+    this test suite itself runs in) with its own copy of the real script, so resolution
+    is proven against git's actual `--git-common-dir` semantics rather than assumed.
+    `SR6_CORE_PDF` is deliberately unset in every test here: this environment has it
+    set, and slicing succeeding for that reason would prove nothing about
+    `source.local.json` specifically.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        # `resolve_source_path` deliberately skips the source.local.json fallback
+        # entirely under a test-manifest override (DECKARD_SOURCE_MANIFEST), so it
+        # cannot be used here -- that would test the wrong thing. A real, uncommitted
+        # `.github/source-manifest.json` is committed into the fake repo instead, so
+        # `DEFAULT_MANIFEST` (resolved from each checkout's own ROOT) finds it exactly
+        # as it would in the real repository, in both the primary and the worktree.
+        cls.tmp = Path(tempfile.mkdtemp(prefix="deckard-slice-worktree-"))
+        cls.primary = cls.tmp / "primary"
+        (cls.primary / "tools").mkdir(parents=True)
+        (cls.primary / ".github").mkdir(parents=True)
+        # A real copy of the actual implementation, not a stand-in, so a future edit to
+        # source-slice.py is exercised by these tests too.
+        shutil.copy(TOOL, cls.primary / "tools" / "source-slice.py")
+
+        cls.pdf = cls.tmp / "fixture.pdf"
+        cls.pdf.write_bytes(make_pdf(PAGES))
+        sha = hashlib.sha256(cls.pdf.read_bytes()).hexdigest()
+        (cls.primary / ".github" / "source-manifest.json").write_text(
+            json.dumps(
+                {
+                    "schemaVersion": 1,
+                    "sources": [
+                        {
+                            "sourceId": "sr6-core",
+                            "authority": 1,
+                            "title": "Fixture Book",
+                            "edition": "Fixture Edition",
+                            "sha256": sha,
+                            "pdfPageCount": len(PAGES),
+                            "pageNumbering": {"printedPageEqualsPdfPageMinus": 1},
+                            "envVar": "SR6_CORE_PDF",
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        run = lambda *a: subprocess.run(a, cwd=cls.primary, check=True, capture_output=True)
+        run("git", "init", "-q", "-b", "main")
+        run("git", "config", "user.email", "t@example.com")
+        run("git", "config", "user.name", "T")
+        run("git", "add", "tools/source-slice.py", ".github/source-manifest.json")
+        run("git", "commit", "-qm", "seed")
+        cls.worktree = cls.tmp / "worktree"
+        run("git", "worktree", "add", "-q", "-b", "issue-1-x", str(cls.worktree))
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def _run(self, script: Path, cwd: Path, *args: str):
+        env = dict(os.environ)
+        env.pop("SR6_CORE_PDF", None)
+        env.pop("DECKARD_SOURCE_MANIFEST", None)
+        env.pop("DECKARD_ALLOW_TEST_MANIFEST", None)
+        return subprocess.run(
+            [sys.executable, str(script), *args],
+            capture_output=True, text=True, env=env, cwd=str(cwd), check=False,
+        )
+
+    def _write_local_config(self) -> Path:
+        local_config = self.primary / "source.local.json"
+        local_config.write_text(json.dumps({"sr6-core": str(self.pdf)}), encoding="utf-8")
+        self.addCleanup(local_config.unlink, missing_ok=True)
+        return local_config
+
+    def test_source_local_json_in_primary_is_found_from_the_worktree(self):
+        self._write_local_config()
+        result = self._run(
+            self.worktree / "tools" / "source-slice.py", self.worktree, "--verify-only"
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("sha256 verified", result.stdout)
+
+    def test_source_local_json_in_primary_is_still_found_from_the_primary_itself(self):
+        """Regression: centralising resolution must not break the primary checkout too."""
+        self._write_local_config()
+        result = self._run(
+            self.primary / "tools" / "source-slice.py", self.primary, "--verify-only"
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("sha256 verified", result.stdout)
+
+    def test_missing_source_local_json_still_refuses_from_the_worktree(self):
+        """No accidental fail-open: absence must still refuse, loudly, from a worktree."""
+        result = self._run(
+            self.worktree / "tools" / "source-slice.py", self.worktree, "--verify-only"
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("not configured", result.stderr)
+
+    def _run_with_env_var(self, script: Path, cwd: Path, pdf: Path):
+        env = dict(os.environ)
+        env["SR6_CORE_PDF"] = str(pdf)
+        env.pop("DECKARD_SOURCE_MANIFEST", None)
+        env.pop("DECKARD_ALLOW_TEST_MANIFEST", None)
+        return subprocess.run(
+            [sys.executable, str(script), "--verify-only"],
+            capture_output=True, text=True, env=env, cwd=str(cwd), check=False,
+        )
+
+    def test_env_var_still_works_unchanged_from_the_worktree(self):
+        """SR6_CORE_PDF keeps working regardless of source.local.json -- #57 is a non-goal
+        for the env-var path, and this must stay true even with no source.local.json at all.
+        """
+        result = self._run_with_env_var(
+            self.worktree / "tools" / "source-slice.py", self.worktree, self.pdf
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("sha256 verified", result.stdout)
+
+    def test_env_var_takes_precedence_over_source_local_json(self):
+        """Unchanged precedence: the env var wins even when source.local.json also exists."""
+        self._write_local_config()
+        result = self._run_with_env_var(
+            self.worktree / "tools" / "source-slice.py", self.worktree, self.pdf
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("sha256 verified", result.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()

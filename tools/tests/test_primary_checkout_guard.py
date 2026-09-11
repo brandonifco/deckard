@@ -307,5 +307,148 @@ class RobustnessTests(GuardTestCase):
         )
 
 
+# Issue #74 folded #32, #52 and #60 into one; #32 is the guard itself. Each false
+# positive it lists was hit for real, on a command that wrote nothing in the repository
+# -- including the project's own mandated commit trailer, which made `git commit -m`
+# unusable without `-F`. Every case below is paired with a same-shape case that is a
+# real mutation and must still be blocked: a fix that only silences the noise, without
+# proving the real cases it sits next to are still caught, is not a fix.
+TRAILER = "Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+
+
+class RedirectFalsePositiveTests(GuardTestCase):
+    """Text that merely *looks* like a redirect, quoted or inside a heredoc body."""
+
+    def test_commit_trailer_is_not_read_as_a_redirect(self):
+        self.assertEqual(self.bash(f'git commit -m "{TRAILER}"', self.worktree), ALLOW)
+
+    def test_dash_C_worktree_commit_with_trailer_from_primary_is_allowed(self):
+        """The exact form dispatched agents use: orchestrator, primary cwd, `-C` worktree."""
+        self.assertEqual(
+            self.bash(f'git -C {self.worktree} commit -m "{TRAILER}"', self.primary), ALLOW
+        )
+
+    def test_quoted_pipe_and_arrow_in_a_regex_is_not_a_redirect(self):
+        self.assertEqual(self.bash('grep -E "^(ok|FAIL)|==>" src/a.cs', self.primary), ALLOW)
+
+    def test_quoted_arrow_in_prose_is_not_a_redirect(self):
+        self.assertEqual(
+            self.bash('gh issue comment --body "... >> 18) ..." --repo x/y', self.primary),
+            ALLOW,
+        )
+
+    def test_heredoc_body_arithmetic_is_not_a_redirect(self):
+        command = (
+            "python3 - <<'PY'\n"
+            "print((((1 >> 18) ^ 1) >> 27))\n"
+            "PY\n"
+        )
+        self.assertEqual(self.bash(command, self.primary), ALLOW)
+
+    def test_heredoc_does_not_swallow_a_real_command_that_follows(self):
+        """A heredoc body must be dropped -- but only the body, not what comes after it."""
+        command = (
+            "python3 - <<'PY'\n"
+            "print((((1 >> 18) ^ 1) >> 27))\n"
+            "PY\n"
+            "git commit -m x\n"
+        )
+        self.assertEqual(self.bash(command, self.primary), BLOCK)
+
+    def test_newline_still_separates_two_commands(self):
+        """A bare newline is a command separator too; collapsing it would hide `git commit`."""
+        self.assertEqual(self.bash("echo hello\ngit commit -m x", self.primary), BLOCK)
+
+    def test_multiline_quoted_value_does_not_split_the_command(self):
+        self.assertEqual(
+            self.bash('git commit -m "line one\nline two"', self.primary), BLOCK
+        )
+
+
+class RedirectTruePositiveTests(GuardTestCase):
+    """The same shapes as above, but a genuine write into the primary checkout."""
+
+    def test_plain_commit_trailer_in_primary_is_still_blocked(self):
+        self.assertEqual(self.bash(f'git commit -m "{TRAILER}"', self.primary), BLOCK)
+
+    def test_dash_C_into_primary_with_trailer_is_still_blocked(self):
+        self.assertEqual(
+            self.bash(f'git -C {self.primary} commit -m "{TRAILER}"', self.tmp), BLOCK
+        )
+
+    def test_redirect_after_a_quoted_regex_is_still_blocked(self):
+        self.assertEqual(
+            self.bash('grep -E "^(ok|FAIL)|==>" src/a.cs > CLAUDE.md', self.primary), BLOCK
+        )
+
+    def test_redirect_after_a_heredoc_marker_is_still_blocked(self):
+        command = (
+            "cat > CLAUDE.md <<'EOF'\n"
+            "not shell syntax >> 18) ^ s\n"
+            "EOF\n"
+        )
+        self.assertEqual(self.bash(command, self.primary), BLOCK)
+
+
+class ModeArgumentFalsePositiveTests(GuardTestCase):
+    """A mode/ownership argument, or an unresolvable scratchpad variable, is not a path."""
+
+    def test_chmod_symbolic_mode_is_not_read_as_a_path(self):
+        self.assertEqual(self.bash('chmod +x "$SP/fill.sh"', self.primary), ALLOW)
+
+    def test_chmod_octal_mode_on_a_worktree_path_is_allowed(self):
+        target = self.worktree / "src" / "a.cs"
+        self.assertEqual(self.bash(f"chmod 755 {target}", self.primary), ALLOW)
+
+    def test_chmod_on_a_path_outside_any_repo_is_allowed(self):
+        outside = self.tmp / "scratch.sh"
+        self.assertEqual(self.bash(f"chmod +x {outside}", self.primary), ALLOW)
+
+    def test_chown_ownership_spec_is_not_read_as_a_path(self):
+        self.assertEqual(self.bash('chown user:group "$SP/fill.sh"', self.primary), ALLOW)
+
+    def test_install_mode_value_is_not_read_as_a_path(self):
+        """`755` must be skipped as the mode, not checked as a source/dest path itself."""
+        self.assertEqual(
+            self.bash('install -m 755 /tmp/src.cs "$SP/dst.cs"', self.primary), ALLOW
+        )
+
+    def test_sed_script_argument_is_not_read_as_a_path(self):
+        self.assertEqual(
+            self.bash("sed -i 's/.../.../' \"$SP/f.md\"", self.primary), ALLOW
+        )
+
+    def test_rm_of_a_scratchpad_variable_is_allowed(self):
+        self.assertEqual(self.bash('rm -f "$SP/probe.txt"', self.primary), ALLOW)
+
+
+class ModeArgumentTruePositiveTests(GuardTestCase):
+    """The same commands, aimed at a real, resolvable path in the primary checkout."""
+
+    def test_chmod_symbolic_mode_on_primary_path_is_still_blocked(self):
+        self.assertEqual(self.bash("chmod +x CLAUDE.md", self.primary), BLOCK)
+
+    def test_chmod_octal_mode_on_primary_path_is_still_blocked(self):
+        self.assertEqual(self.bash("chmod 755 src/a.cs", self.primary), BLOCK)
+
+    def test_chown_on_primary_path_is_still_blocked(self):
+        self.assertEqual(self.bash("chown user:group src/a.cs", self.primary), BLOCK)
+
+    def test_install_mode_onto_primary_path_is_still_blocked(self):
+        self.assertEqual(self.bash("install -m 755 /tmp/x src/a.cs", self.primary), BLOCK)
+
+    def test_sed_script_onto_primary_path_is_still_blocked(self):
+        self.assertEqual(
+            self.bash("sed -i 's/.../.../' src/a.cs", self.primary), BLOCK
+        )
+
+    def test_rm_of_a_real_primary_path_is_still_blocked(self):
+        self.assertEqual(self.bash('rm -f src/a.cs', self.primary), BLOCK)
+
+    def test_chmod_of_a_primary_path_from_a_worktree_cwd_is_allowed(self):
+        """Sanity check: these commands are only interesting when cwd is the primary."""
+        self.assertEqual(self.bash("chmod +x CLAUDE.md", self.worktree), ALLOW)
+
+
 if __name__ == "__main__":
     unittest.main()
