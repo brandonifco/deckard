@@ -1,4 +1,4 @@
-using Deckard.Core.Randomness;
+using Deckard.Testing.Randomness;
 
 namespace Deckard.Core.Tests.Randomness;
 

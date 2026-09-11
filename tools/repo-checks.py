@@ -132,6 +132,20 @@ ALLOWED_PROJECT_REFS: dict[str, set[str]] = {
     "Deckard.Core": set(),
     "Deckard.Data": {"Deckard.Core"},
     "Deckard.Rules": {"Deckard.Core", "Deckard.Data"},
+    # Deckard.Testing is test-support code, not a fourth engine layer: it lives under
+    # tests/, ships to nobody, and may see only Core. See amendment to ADR 0001.
+    "Deckard.Testing": {"Deckard.Core"},
+}
+
+# Where each project above actually lives. check_layering used to assume every project
+# sat under src/<name>/ -- true while the graph was exactly Core, Data, Rules. Deckard.Testing
+# lives under tests/ instead, so the directory is now looked up per project rather than
+# hard-coded.
+PROJECT_DIRS: dict[str, str] = {
+    "Deckard.Core": "src/Deckard.Core",
+    "Deckard.Data": "src/Deckard.Data",
+    "Deckard.Rules": "src/Deckard.Rules",
+    "Deckard.Testing": "tests/Deckard.Testing",
 }
 
 
@@ -199,7 +213,7 @@ def check_determinism(root: Path) -> list[Failure]:
 def check_layering(root: Path) -> list[Failure]:
     failures: list[Failure] = []
     for project, allowed in ALLOWED_PROJECT_REFS.items():
-        csproj = root / "src" / project / f"{project}.csproj"
+        csproj = root / PROJECT_DIRS[project] / f"{project}.csproj"
         if not csproj.is_file():
             failures.append(Failure(f"missing expected project: {csproj.relative_to(root)}"))
             continue

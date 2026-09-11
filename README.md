@@ -52,7 +52,8 @@ copyright and no grant to anyone. That is an open question, not a settled positi
 src/Deckard.Core     deterministic primitives        depends on nothing
 src/Deckard.Data     structured rule values          depends on Core
 src/Deckard.Rules    Shadowrun mechanics             depends on Core + Data
-tests/               one test project per assembly
+tests/               one test project per assembly, plus Deckard.Testing (shared
+                     test doubles; never shipped)
 tools/               source packets, repo checks, agent dispatch
 scripts/             validate.sh, doctor.sh
 docs/                architecture, scope, roadmap, decisions

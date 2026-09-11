@@ -79,3 +79,21 @@ reproducibility, "close enough SDK" is the wrong default.
 - **Single assembly.** No mechanical way to state or enforce the boundaries.
 - **Subsystem assemblies now.** Encodes a guess about Shadowrun's structure before reading
   the book's actual dependencies.
+
+## Amendment — 2026-09-10 (Issue #36)
+
+The three-assembly decision above governs the **shipped library**: `Deckard.Core`,
+`Deckard.Data`, `Deckard.Rules`, and nothing else, is what a future client depends on.
+
+It does not speak to test-support code, because none existed yet. PR #34 (Issue #2) put
+`FixedSequenceRandomSource` in `Deckard.Core` for want of anywhere else all three test
+projects could reach it, and recorded a fourth assembly as an architecture change outside
+that Issue's scope. Issue #36 makes that call: `tests/Deckard.Testing` is a plain,
+non-packable library under `tests/`, referencing `Deckard.Core` only, carrying
+`FixedSequenceRandomSource` and whatever test doubles follow it.
+
+This is not a fourth layer in the graph this ADR decided. It ships to nobody — no client
+of the shipped library ever sees or references it — and `tools/repo-checks.py --only
+layering` forbids any `src/` project from referencing it, the same way it enforces every
+other edge in the graph above. Test-support code living under `tests/` is orthogonal to
+the shipped `Core <- Data <- Rules` decision, not an exception to it.

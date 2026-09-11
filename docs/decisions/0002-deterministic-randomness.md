@@ -68,9 +68,15 @@ an algorithm with `System.Random`'s internals makes it perpetually unclear, to h
 agents alike, whether a given piece of code depends on the framework's behaviour or the
 engine's. A distinct algorithm makes that question unaskable.
 
-The d6 mapping must reject rather than modulo. `value % 6` biases low faces, subtly enough
-to survive casual inspection and badly enough to distort dice-pool statistics — which is
-precisely what a Shadowrun engine computes.
+The d6 mapping must reject rather than modulo. `value % 6` is not exactly uniform:
+2^32 = 4,294,967,296 = 6 × 715,827,882 + 4, so four of the six residues receive
+715,827,883 outcomes out of 2^32 and the other two receive 715,827,882 — an absolute
+difference of 2^-32 ≈ 2.33e-10 per face, about 1.4e-9 relative. No quantity of dice this
+engine will ever roll could detect that. Rejection sampling is preferred anyway, and on a
+stronger footing than the size of the error: it is exactly uniform rather than uniform up
+to a provably tiny discrepancy, it costs essentially nothing (discard and redraw the rare
+out-of-range value), and a mapping that is provably exact needs no argument about whether
+its error is small enough to tolerate.
 
 ## Consequences
 
