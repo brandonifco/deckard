@@ -8,16 +8,21 @@ namespace Deckard.Data.Attributes;
 /// The attribute vocabulary grouped and ordered exactly as SR6 Core / Game Concepts /
 /// Character Traits / Attributes / printed pp. 37-38 / PDF pp. 38-39 prints it: Physical
 /// first, then Mental, then Special, each group's members in the order the book lists
-/// them. This is the single source of truth both <see cref="Physical"/>/<see cref="Mental"/>/
-/// <see cref="Special"/>/<see cref="All"/> and <see cref="CategoryOf"/> are built from, so
-/// the grouping cannot drift out of sync with itself.
+/// them. Note that <see cref="CategoryOf"/> is a separate hand-written mapping rather than
+/// something derived from these arrays, so the grouping is encoded twice and *can* drift.
+/// What prevents that is the test asserting every attribute's category against the arrays,
+/// not the structure of this file.
 ///
 /// Every list here is ordered by construction (an array literal), never by enumerating a
 /// keyed collection, per ADR 0006 (docs/decisions/0006-deterministic-ordering-conventions.md).
 /// </summary>
 public static class AttributeCatalog
 {
-    /// <summary>Body, Agility, Reaction, Strength -- printed p. 37 / PDF p. 38, in this order.</summary>
+    /// <summary>
+    /// Body, Agility, Reaction, Strength, in printed order. Body and Agility are printed
+    /// p. 37 / PDF p. 38; Reaction and Strength are printed p. 38 / PDF p. 39 -- the
+    /// group spans the page break, which is why the two halves cite different pages.
+    /// </summary>
     public static IReadOnlyList<CharacterAttribute> Physical { get; } = new[]
     {
         CharacterAttribute.Body,

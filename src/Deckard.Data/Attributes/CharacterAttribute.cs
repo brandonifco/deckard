@@ -22,7 +22,9 @@ namespace Deckard.Data.Attributes;
 /// </summary>
 public enum CharacterAttribute
 {
-    // Physical -- printed p. 37 / PDF p. 38, printed in this order.
+    // Physical, in printed order. Body and Agility are printed p. 37 / PDF p. 38;
+    // Reaction and Strength are printed p. 38 / PDF p. 39 -- the group spans the
+    // page break.
     Body,
     Agility,
     Reaction,
