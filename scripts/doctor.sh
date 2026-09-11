@@ -5,10 +5,18 @@
 # config file, or export a variable for you, because an environment that silently
 # fixes itself is an environment nobody can reason about. Every failure below prints
 # the exact command or edit that resolves it.
+#
+# It sources scripts/lib/dotnet-env.sh below to resolve the SDK the same way
+# validate.sh does, which prepends to PATH and sets DOTNET_ROOT -- but only inside this
+# script's own process. Nothing on disk changes and the invoking shell's environment is
+# untouched once doctor.sh exits; the "never change it" contract above still holds.
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
+
+# shellcheck source=lib/dotnet-env.sh
+source "$REPO_ROOT/scripts/lib/dotnet-env.sh"
 
 if [[ -t 1 ]]; then BOLD=$'\033[1m'; RED=$'\033[31m'; YEL=$'\033[33m'; GRN=$'\033[32m'; OFF=$'\033[0m'
 else BOLD=""; RED=""; YEL=""; GRN=""; OFF=""; fi
@@ -39,15 +47,32 @@ if command -v gh >/dev/null 2>&1; then
   fi
 else bad "gh" "not found"; hint "https://cli.github.com"; fi
 
+case "$DECKARD_DOTNET_SOURCE" in
+  repo-local)        dotnet_origin="repo-local .dotnet/" ;;
+  primary-checkout)  dotnet_origin="primary checkout's .dotnet/ ($DECKARD_DOTNET_HOME)" ;;
+  *)                 dotnet_origin="PATH" ;;
+esac
+
 if command -v dotnet >/dev/null 2>&1; then
   pinned="$(python3 -c 'import json;print(json.load(open("global.json"))["sdk"]["version"])' 2>/dev/null || echo '?')"
-  actual="$(dotnet --version 2>/dev/null || echo 'error')"
-  if [[ "$pinned" == "$actual" ]]; then
-    ok ".NET SDK" "$actual (matches global.json pin)"
+  # Branch on exit status, not on salvaging stdout: when no installed SDK satisfies
+  # global.json, the muxer writes the INSTALLED SDK LIST to stdout and the real "no
+  # compatible SDK" error to stderr, then exits non-zero. `2>/dev/null` discards the
+  # real error and `actual` is left holding a list of versions dotnet never reported as
+  # its own -- printing that as "have $actual" is a fabricated version string, not a
+  # diagnosis.
+  if actual="$(dotnet --version 2>/dev/null)"; then
+    if [[ "$pinned" == "$actual" ]]; then
+      ok ".NET SDK" "$actual (matches global.json pin, from $dotnet_origin)"
+    else
+      bad ".NET SDK" "have $actual, global.json pins $pinned (from $dotnet_origin)"
+      hint "Deckard pins an exact patch with rollForward=disable."
+      hint "./scripts/bootstrap-dotnet.sh"
+    fi
   else
-    bad ".NET SDK" "have $actual, global.json pins $pinned"
+    bad ".NET SDK" "cannot satisfy global.json's pin of $pinned (from $dotnet_origin)"
     hint "Deckard pins an exact patch with rollForward=disable."
-    hint "Install $pinned: https://dotnet.microsoft.com/download/dotnet/10.0"
+    hint "./scripts/bootstrap-dotnet.sh"
   fi
 else bad ".NET SDK" "not found"; fi
 

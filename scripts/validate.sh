@@ -17,6 +17,12 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
+# Prefer a repo-local or primary-checkout .dotnet/ over PATH's dotnet when one exists
+# (scripts/bootstrap-dotnet.sh installs it); otherwise change nothing, which is the path
+# CI takes. Sourced before the SDK pin check so that check sees whatever this resolves.
+# shellcheck source=lib/dotnet-env.sh
+source "$REPO_ROOT/scripts/lib/dotnet-env.sh"
+
 MODE="${1:-full}"
 export DOTNET_NOLOGO=1
 export DOTNET_CLI_TELEMETRY_OPTOUT=1
@@ -64,13 +70,24 @@ skipped() {
 # --------------------------------------------------------------------- sdk pin
 verify_sdk_pin() {
   step "SDK pin"
-  local pinned roll actual
+  local pinned roll actual status
   pinned="$(python3 -c 'import json;print(json.load(open("global.json"))["sdk"]["version"])')"
   # rollForward is checked too, not just the version. Changing it to latestMajor would
   # silently reintroduce exactly the "close enough SDK" this pin exists to forbid, and
   # a version-string comparison alone would not notice.
   roll="$(python3 -c 'import json;print(json.load(open("global.json"))["sdk"].get("rollForward",""))')"
-  actual="$(dotnet --version)"
+
+  # A bare `var=$(failing-command)` under `set -e` terminates the shell on the spot --
+  # the exact trap the tooling-tests step below documents and guards against with
+  # `|| tooling_status=$?`. `dotnet --version` exits non-zero for precisely the case
+  # this check exists to catch (no installed SDK satisfies global.json), so capturing
+  # it bare would kill the script before the comparison and the guidance beneath it
+  # ever ran. This is the second place that trap has bitten; look here before a third.
+  # Its stdout is also not trustworthy on failure -- the muxer writes the INSTALLED SDK
+  # LIST there and the real error to stderr -- so it is discarded rather than reported
+  # as though it were a version.
+  status=0
+  actual="$(dotnet --version 2>/dev/null)" || status=$?
 
   if [[ "$roll" != "disable" ]]; then
     fail "SDK pin: global.json rollForward is '$roll', expected 'disable'"
@@ -78,9 +95,14 @@ verify_sdk_pin() {
     echo "     different compiler, and reproducibility is this project's central claim." >&2
     return 1
   fi
+  if [[ "$status" -ne 0 ]]; then
+    fail "SDK pin: global.json requires $pinned but the resolved dotnet cannot satisfy it"
+    echo "     ./scripts/bootstrap-dotnet.sh, or change the pin deliberately in its own PR." >&2
+    return 1
+  fi
   if [[ "$pinned" != "$actual" ]]; then
     fail "SDK pin: global.json requires $pinned but 'dotnet --version' reports $actual"
-    echo "     Install $pinned, or change the pin deliberately in its own PR." >&2
+    echo "     ./scripts/bootstrap-dotnet.sh, or change the pin deliberately in its own PR." >&2
     return 1
   fi
   printf '%sok%s   SDK %s (rollForward=%s)\n' "$GREEN" "$OFF" "$actual" "$roll"
