@@ -89,14 +89,14 @@ Forbidden in engine source, and mechanically blocked by `repo-checks.py --only d
 | `Task.Run`, `.AsParallel()` | non-deterministic resolution order |
 
 Also forbidden by policy, and not mechanically checkable: relying on hash iteration order
-to determine anything observable — event order, dice results within a roll, initiative
-order, modifier application order, or random draw order. See
+to determine anything observable. See
 [`decisions/0006-deterministic-ordering-conventions.md`](decisions/0006-deterministic-ordering-conventions.md)
 for what counts as observable and the approved and forbidden shapes.
 
-Also forbidden by policy: using floating-point arithmetic for discrete rules where exact
-integer or rational arithmetic is correct. Where Shadowrun specifies rounding, encode the
-rounding rule explicitly and pin its boundary cases in tests.
+Also forbidden by policy, and not mechanically checkable: using floating-point arithmetic
+for discrete rules where exact integer or rational arithmetic is correct. Where Shadowrun
+specifies rounding, encode the rounding rule explicitly and pin its boundary cases in
+tests.
 
 A genuine exception is opted into per line with `// deckard:allow-nondeterminism <reason>`
 and must be justified in the PR. Diagnostics may need it. Rules resolution never does.

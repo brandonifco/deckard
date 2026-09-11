@@ -43,8 +43,8 @@ Phase 2 (#4) is where this stops being hypothetical, so the convention must exis
 
 ## Options considered
 
-1. **Rely on review discipline, no written convention.** The status quo; gives a
-   reviewer nothing citable — "that looks wrong" is a mood, not a standard.
+1. **Leave the existing one-sentence policy as-is, enforced only by review.** The status
+   quo; gives a reviewer nothing citable — "that looks wrong" is a mood, not a standard.
 2. **A `repo-checks.py` regex flagging dictionary/hash-set enumeration.** Cannot tell an
    enumeration feeding an observable result from a lookup — most `foreach`/`.Values` use
    here is the latter — so it fires on the legitimate case and gets disabled within a
@@ -81,11 +81,8 @@ matters is whether hash-bucket order determined it anywhere in the pipeline.
 - **`OrderBy`/`OrderByDescending`/`ThenBy`**, with a key that is **total** — no two
   distinct elements the ordering must distinguish compare equal. Where the natural key
   has ties, break them with an explicit `ThenBy` on a further key (a stable ID, an
-  ordinal name comparison) rather than relying on `OrderBy`'s stable-sort guarantee to
-  preserve the *input* order for tied elements. That guarantee is only as good as the
-  input's order, and input drawn from dictionary or hash-set enumeration has none to
-  preserve — stability across a boundary the code does not control just moves the hazard
-  upstream and hides it behind a call that looks correct.
+  ordinal name comparison) rather than leaning on `OrderBy`'s stable-sort guarantee alone
+  — see Reasoning for why that guarantee does not save you here.
 - **`SortedDictionary<TKey,TValue>` / `SortedSet<T>` with an explicit `IComparer<TKey>`**,
   when a keyed collection is genuinely needed and re-enumerated into an observable result
   repeatedly as it mutates (a live initiative table re-queried as entries are added or
@@ -94,9 +91,7 @@ matters is whether hash-bucket order determined it anywhere in the pipeline.
 ### What stays fine
 
 A `Dictionary<,>`/`HashSet<>` used purely as a lookup — `TryGetValue`, `Contains`, keyed
-access, never enumerated into an observable result — is unaffected; the hazard is
-enumeration order leaking into a result, not the map's existence. Reflexively replacing
-every lookup with `SortedDictionary<,>` "to be safe" is this ADR's likeliest failure mode.
+access, never enumerated into an observable result — is unaffected (see Reasoning).
 
 ### Illustration
 
@@ -128,15 +123,30 @@ if (modifiersByName.TryGetValue(name, out var modifier)) { /* ... */ }
 
 ### Why no analyzer yet
 
-No engine code yet produces an observable ordered result (Options considered #3), and an
-external review of this repository already warned that its process machinery risks
-outgrowing the engine it protects — building a dataflow-sensitive analyzer before a
-single real defect justifies it would be exactly that pattern.
+No engine code yet produces an observable ordered result (Options considered #3): there
+is no real instance to design a detector against or tune a false-positive rate on.
 
 The condition that justifies one: a real occurrence caught late, not in review — a merged
-PR or a replay bug report where `Dictionary<,>`/`HashSet<>` enumeration order leaked into
-an observable result. That gives the analyzer a real AST shape and a real codebase to
-tune against. File it as its own Issue then, citing the incident.
+PR or replay bug where `Dictionary<,>`/`HashSet<>` enumeration order leaked into an
+observable result. File it as its own Issue then, citing the incident.
+
+## Reasoning
+
+Requiring a *total* sort key, with ties broken explicitly, is not optional decoration:
+`OrderBy`'s stable-sort guarantee only preserves the *input* sequence's order for tied
+elements, and input drawn from dictionary or hash-set enumeration has no order to
+preserve. Leaning on that guarantee alone just moves the hazard upstream and hides it
+behind a call that looks correct. An explicit `ThenBy` on a stable key removes the tie
+outright rather than hoping the input's incidental order happens to be sound.
+
+The rule is framed around what is *observable*, not around banning `Dictionary<,>`
+outright, because keyed lookups are a routine, safe pattern this engine needs everywhere
+— skills by name, modifiers by source, effects by target. A convention that could not
+tell a lookup from an enumeration feeding an observable result would either forbid an
+idiomatic pattern or get reinterpreted loosely until it protects nothing. Reflexively
+replacing every lookup with `SortedDictionary<,>` "to be safe" fails for the same reason
+in the opposite direction: it treats the map's existence as the hazard, not what happens
+when it is enumerated.
 
 ## Consequences
 
@@ -155,6 +165,6 @@ tune against. File it as its own Issue then, citing the incident.
   — see Options considered #3 and "Why no analyzer yet".
 - **Mandating `SortedDictionary`/`SortedSet` for every keyed collection.** Solves a
   problem pure lookups do not have, at a real cost in comparer overhead and readability —
-  see "What stays fine".
+  see Reasoning.
 - **Leaving the existing one-sentence policy as-is.** Not concrete enough for a reviewer
-  to hold a diff against — the gap Issue #39 exists to close.
+  to hold a diff against — see Options considered #1.
