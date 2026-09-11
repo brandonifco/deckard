@@ -65,10 +65,41 @@ ADR_DIR = "docs/decisions/"
 HTML_COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
 FENCE = re.compile(r"```.*?```", re.DOTALL)
 
-# A line that plausibly names a command someone actually ran.
+# Fenced blocks (``` or ~~~), indented code blocks, and inline code spans -- the three
+# CommonMark shapes for "this text is quoted, not written." Not a Markdown parser (see
+# module docstring): each is a plain regex, and none of it understands nesting. Good
+# enough to stop a quoted "Closes #N" inside evidence from reading as a second
+# declaration (#52) without pulling in a dependency for it.
+_FENCED_BLOCK = re.compile(r"(```|~~~).*?\1", re.DOTALL)
+_INDENTED_LINE = re.compile(r"^(?:[ ]{4,}|\t).*$", re.MULTILINE)
+_INLINE_CODE = re.compile(r"`[^`\n]+`")
+
+
+def strip_quoted(text: str) -> str:
+    """Remove fenced blocks, indented code blocks, and inline code spans.
+
+    Used only for the linked-Issue scan: a PR body that quotes generated output
+    containing its own "Closes #N" (tools/review-packet.sh's whole purpose, per PR #51)
+    must not be read as declaring a second Issue.
+    """
+    text = _FENCED_BLOCK.sub("", text)
+    text = _INDENTED_LINE.sub("", text)
+    text = _INLINE_CODE.sub("", text)
+    return text
+
+
+# A line that plausibly names a command someone actually ran: an optional shell prompt,
+# optional leading `NAME=value` environment assignments (e.g. `CI=true`), then either a
+# bare `tools/<anything>` or `scripts/<anything>` invocation -- which ages with the repo
+# instead of needing a new entry every time a script is added -- or one of a handful of
+# interpreter/VCS names that are not usually invoked through a repo-relative path.
 COMMAND_LINE = re.compile(
-    r"^\s*[$>]?\s*(\./|/|~?/)?(scripts/|tools/)?"
-    r"(validate\.sh|doctor\.sh|dotnet|python3?|pytest|git|gh|make|repo-checks)\b",
+    r"^\s*[$>]?\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+)*"
+    r"(?:"
+    r"(?:\./|/|~?/)?(?:scripts|tools)/\S+"
+    r"|(?:\./|/|~?/)?(?:scripts/|tools/)?"
+    r"(?:validate\.sh|doctor\.sh|dotnet|python3?|pytest|git|gh|make|repo-checks)\b"
+    r")",
     re.MULTILINE,
 )
 
@@ -145,7 +176,9 @@ def check(body: str, changed_files: list[str], issue_labels, author: str | None 
     sections = split_sections(body)
 
     # ------------------------------------------------------------- exactly one Issue
-    linked = sorted(set(CLOSES.findall(body)))
+    # strip_quoted, not body: a PR quoting a generated packet that itself contains
+    # "Closes #N" (evidence, not a declaration) must not count as a second linked Issue.
+    linked = sorted(set(CLOSES.findall(strip_quoted(body))))
     if not linked:
         failures.append(
             'no linked Issue: the PR body must contain "Closes #NNN". '

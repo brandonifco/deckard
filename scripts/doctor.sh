@@ -18,6 +18,14 @@ cd "$REPO_ROOT"
 # shellcheck source=lib/dotnet-env.sh
 source "$REPO_ROOT/scripts/lib/dotnet-env.sh"
 
+# source.local.json is gitignored and lives in the primary checkout; resolving it
+# against REPO_ROOT (this checkout's own root) made it invisible from every worktree --
+# the one place CLAUDE.md requires implementation to happen (#57). dotnet-env.sh, just
+# sourced above, already defines deckard_primary_checkout_root for this exact purpose
+# (its own .dotnet/ lookup has the identical primary-checkout-vs-worktree shape); reuse
+# it rather than a third copy of the same git-common-dir logic in this file too.
+PRIMARY_ROOT="$(deckard_primary_checkout_root "$REPO_ROOT")" || PRIMARY_ROOT="$REPO_ROOT"
+
 if [[ -t 1 ]]; then BOLD=$'\033[1m'; RED=$'\033[31m'; YEL=$'\033[33m'; GRN=$'\033[32m'; OFF=$'\033[0m'
 else BOLD=""; RED=""; YEL=""; GRN=""; OFF=""; fi
 
@@ -108,10 +116,19 @@ PY
 )"
 ok "manifest" "$SRC_ID -- ${SRC_EDITION//_/ } (${SRC_PAGES}p)"
 
+# source.local.json is looked up in the primary checkout (PRIMARY_ROOT above), the same
+# place tools/source-slice.py resolves it from, so this reports the same source state
+# whether run from a worktree or from the primary checkout itself. Say so plainly when
+# the two differ, so "not configured" from a worktree does not read as "look here".
+LOCAL_CONFIG_PATH="$PRIMARY_ROOT/source.local.json"
+if [[ "$PRIMARY_ROOT" != "$REPO_ROOT" ]]; then
+  hint "(source.local.json is read from the primary checkout: $PRIMARY_ROOT)"
+fi
+
 if [[ -n "${!SRC_ENV:-}" ]]; then
   CONFIGURED="${!SRC_ENV}"; ORIGIN="\$$SRC_ENV"
-elif [[ -f source.local.json ]]; then
-  CONFIGURED="$(python3 -c "import json;print(json.load(open('source.local.json')).get('$SRC_ID',''))" 2>/dev/null)"
+elif [[ -f "$LOCAL_CONFIG_PATH" ]]; then
+  CONFIGURED="$(python3 -c "import json;print(json.load(open('$LOCAL_CONFIG_PATH')).get('$SRC_ID',''))" 2>/dev/null)"
   ORIGIN="source.local.json"
 else
   CONFIGURED=""; ORIGIN=""
@@ -121,7 +138,8 @@ if [[ -z "$CONFIGURED" ]]; then
   warn "$SRC_ENV" "not configured"
   hint "Rules work needs it; everything else (build, tests, CI) does not."
   hint "export $SRC_ENV=/absolute/path/to/your/own/copy.pdf"
-  hint "or create source.local.json (gitignored): { \"$SRC_ID\": \"/absolute/path.pdf\" }"
+  hint "or create source.local.json in the primary checkout (gitignored):"
+  hint "  { \"$SRC_ID\": \"/absolute/path.pdf\" } -> $LOCAL_CONFIG_PATH"
 elif [[ ! -f "$CONFIGURED" ]]; then
   bad "$ORIGIN" "points at a missing file"
   hint "configured value does not exist on disk"

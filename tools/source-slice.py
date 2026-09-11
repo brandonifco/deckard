@@ -35,7 +35,54 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_MANIFEST = ROOT / ".github" / "source-manifest.json"
-LOCAL_CONFIG = ROOT / "source.local.json"
+
+
+def _primary_checkout_root() -> Path:
+    """The root of the checkout that owns the shared `.git` -- the primary checkout.
+
+    `source.local.json` is gitignored, so it exists only where someone put it, almost
+    always the primary checkout: CLAUDE.md requires all implementation to happen in a
+    worktree tools/dispatch-agent.sh created, and nobody hand-configures the source
+    freshly in every one of those. Resolving it against ROOT (this script's own parent)
+    made it invisible from every worktree -- the one place it is needed (#57).
+
+    `git rev-parse --git-common-dir` is what dispatch-agent.sh already uses to tell a
+    worktree from the primary checkout (its own assert_primary_checkout), and what
+    scripts/lib/dotnet-env.sh's deckard_primary_checkout_root uses for the identical
+    "one shared resource, every worktree must find it" problem with its own .dotnet/
+    lookup -- this mirrors that shell function. The common-dir path points at the
+    primary checkout's `.git` directory; its parent is the checkout root, since `.git`
+    sits directly under the root in this repository's layout (checked below, rather
+    than assumed, in case that ever stops holding -- a submodule's `.git` is a file, not
+    a directory, for instance). The path comes back relative to whatever directory git
+    ran in when it is already the primary checkout's own `.git` (the common case there),
+    so it is resolved against ROOT rather than assumed absolute.
+
+    Falls back to ROOT -- the pre-#57 behaviour -- when git is unavailable, this is not
+    a git checkout at all, or the resolved common dir does not look like a `.git`
+    directory, so the tool still degrades to "look next to me" rather than failing
+    outright or resolving somewhere nonsensical.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--git-common-dir"],
+            cwd=ROOT, capture_output=True, text=True, check=False, timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ROOT
+    if result.returncode != 0:
+        return ROOT
+    common_dir = Path(result.stdout.strip())
+    if not common_dir.is_absolute():
+        common_dir = ROOT / common_dir
+    common_dir = common_dir.resolve()
+    if common_dir.name != ".git":
+        return ROOT
+    return common_dir.parent
+
+
+PRIMARY_CHECKOUT_ROOT = _primary_checkout_root()
+LOCAL_CONFIG = PRIMARY_CHECKOUT_ROOT / "source.local.json"
 
 # Test-only manifest override. Requires an explicit second opt-in, and any packet
 # produced under it is stamped NON-AUTHORITATIVE in its own header so a substituted
@@ -90,7 +137,9 @@ def resolve_source_path(source: dict, is_test_manifest: bool = False) -> Path:
 
     Resolution order, both deliberately outside version control:
       1. the environment variable named by the manifest (e.g. SR6_CORE_PDF)
-      2. source.local.json in the repo root, mapping sourceId -> absolute path
+      2. source.local.json in the PRIMARY CHECKOUT (see PRIMARY_CHECKOUT_ROOT above),
+         mapping sourceId -> absolute path -- not the checkout this script happens to be
+         running from, so it is visible from every worktree too (#57).
 
     Under a test manifest the source.local.json fallback is skipped entirely, so a
     developer's real local configuration can never leak into a fixture run and make
@@ -113,7 +162,7 @@ def resolve_source_path(source: dict, is_test_manifest: bool = False) -> Path:
             f"The authoritative source for '{source['sourceId']}' is not configured.\n"
             f"  Set {env_var} to the absolute path of your own copy of:\n"
             f"    {source['title']} -- {source['edition']}\n"
-            f"  or create {LOCAL_CONFIG.name} (gitignored) containing:\n"
+            f"  or create {LOCAL_CONFIG} (gitignored) containing:\n"
             f'    {{ "{source["sourceId"]}": "/absolute/path/to/the/file.pdf" }}\n'
             "  See docs/source-handling.md. The file itself is never committed."
         )

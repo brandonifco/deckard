@@ -356,5 +356,136 @@ class RulesConformanceTests(unittest.TestCase):
         self.assertEqual(pr_policy.check(GOOD, ["src/Deckard.Core/Pcg.cs"], no_labels), [])
 
 
+class LinkedIssueCodeFenceTests(unittest.TestCase):
+    """#52: PR #51 quoted a generated packet containing "Closes #38" as evidence for
+    tools/review-packet.sh, and was failed for closing two Issues. Quoted text is not a
+    declaration; each shape it can be quoted in must be ignored for the count, while a
+    real second declaration -- or no declaration at all -- must still fail.
+    """
+
+    def _evidence(self, text: str) -> str:
+        return GOOD.replace(
+            "```\n$ ./scripts/validate.sh full\nvalidate.sh full: PASS\n```", text
+        )
+
+    def test_closes_inside_a_backtick_fence_does_not_count_as_a_second_issue(self):
+        body = self._evidence(
+            "```\n$ tools/review-packet.sh --issue 38 --pr 50 --branch x --base y "
+            "--output z\n  -> ## Pull request ... Closes #38 ...\n```"
+        )
+        self.assertEqual(pr_policy.check(body, [], no_labels), [])
+
+    def test_closes_inside_a_tilde_fence_does_not_count(self):
+        body = self._evidence("~~~\nCloses #99\n~~~\n\n$ ./scripts/validate.sh full\nPASS")
+        self.assertEqual(pr_policy.check(body, [], no_labels), [])
+
+    def test_closes_inside_an_indented_code_block_does_not_count(self):
+        body = self._evidence(
+            "    Closes #99 (quoted from a generated packet)\n\n"
+            "$ ./scripts/validate.sh full\nPASS"
+        )
+        self.assertEqual(pr_policy.check(body, [], no_labels), [])
+
+    def test_closes_inside_an_inline_code_span_does_not_count(self):
+        body = self._evidence(
+            "The template line `Closes #99` is quoted here as an example.\n\n"
+            "$ ./scripts/validate.sh full\nPASS"
+        )
+        self.assertEqual(pr_policy.check(body, [], no_labels), [])
+
+    def test_real_declaration_plus_the_same_issue_quoted_as_evidence_counts_once(self):
+        """The exact PR #51 shape: Issue #7 declared for real, then quoted back as proof."""
+        body = self._evidence(
+            "```\n$ tools/review-packet.sh --pr 50\n"
+            "  -> ## Pull request ... Closes #7 ...\n```"
+        )
+        self.assertEqual(pr_policy.check(body, [], no_labels), [])
+
+    def test_a_genuine_second_declaration_outside_any_fence_still_fails(self):
+        body = GOOD.replace("Closes #7", "Closes #7\nCloses #9")
+        self.assertIn("must close exactly one", " ".join(pr_policy.check(body, [], no_labels)))
+
+    def test_no_declaration_anywhere_still_fails(self):
+        body = GOOD.replace("Closes #7", "Related to #7")
+        self.assertIn("no linked Issue", " ".join(pr_policy.check(body, [], no_labels)))
+
+    def test_only_a_fenced_closes_with_no_real_declaration_still_fails(self):
+        body = GOOD.replace("Closes #7", "Related to #7").replace(
+            "```\n$ ./scripts/validate.sh full\nvalidate.sh full: PASS\n```",
+            "```\nCloses #7\n```",
+        )
+        self.assertIn("no linked Issue", " ".join(pr_policy.check(body, [], no_labels)))
+
+
+class CommandLineMatchTests(unittest.TestCase):
+    """#60: PR #59's evidence was failed for pasting `CI=true ./scripts/validate.sh full`
+    -- the more thorough of its two runs (#48) -- because COMMAND_LINE required one of a
+    fixed set of binary names right after an optional scripts/tools prefix. An env-var
+    prefix, and a script under tools/ or scripts/ that is not one of the named few, must
+    both count; prose that names no command at all must still fail.
+    """
+
+    def _evidence(self, text: str) -> str:
+        return GOOD.replace(
+            "```\n$ ./scripts/validate.sh full\nvalidate.sh full: PASS\n```", text
+        )
+
+    def test_env_prefixed_validate_full_satisfies_the_check(self):
+        body = self._evidence(
+            "```\n$ CI=true ./scripts/validate.sh full\nvalidate.sh full: PASS\n```"
+        )
+        self.assertEqual(pr_policy.check(body, [], no_labels), [])
+
+    def test_multiple_env_assignments_are_allowed(self):
+        body = self._evidence(
+            "```\n$ CI=true DOTNET_NOLOGO=1 ./scripts/validate.sh full\nPASS\n```"
+        )
+        self.assertEqual(pr_policy.check(body, [], no_labels), [])
+
+    def test_env_prefix_without_a_dollar_prompt_still_matches(self):
+        body = self._evidence("CI=true ./scripts/validate.sh full\nvalidate.sh full: PASS")
+        self.assertEqual(pr_policy.check(body, [], no_labels), [])
+
+    def test_python_invoked_tools_script_satisfies_the_check(self):
+        body = self._evidence(
+            "```\n$ python3 tools/rules-conformance-gate.py --pr 54\nOK\n```"
+        )
+        self.assertEqual(pr_policy.check(body, [], no_labels), [])
+
+    def test_bare_tools_script_not_in_the_allowlist_satisfies_the_check(self):
+        """tools/review-packet.sh is invoked directly, with no interpreter prefix and no
+        entry in COMMAND_LINE's fixed name list -- the exact gap #60 flags: the list
+        goes stale every time a script is added.
+        """
+        body = self._evidence(
+            "```\n$ tools/review-packet.sh --issue 38 --pr 50 --branch x --base y "
+            "--output z\nwrote packet\n```"
+        )
+        self.assertEqual(pr_policy.check(body, [], no_labels), [])
+
+    def test_bare_scripts_script_not_in_the_allowlist_satisfies_the_check(self):
+        body = self._evidence("```\n$ scripts/bootstrap-dotnet.sh\ninstalled\n```")
+        self.assertEqual(pr_policy.check(body, [], no_labels), [])
+
+    def test_source_slice_invocation_satisfies_the_check(self):
+        body = self._evidence(
+            '```\n$ tools/source-slice.py --printed-pages 44-45 --expect "Edge"\nwrote packet\n```'
+        )
+        self.assertEqual(pr_policy.check(body, [], no_labels), [])
+
+    def test_bare_tests_pass_still_fails(self):
+        failures = pr_policy.check(self._evidence("All tests pass."), [], no_labels)
+        self.assertIn("names no command", " ".join(failures))
+
+    def test_prose_with_no_command_still_fails(self):
+        body = self._evidence("Everything looks correct and works as expected.")
+        self.assertIn("names no command", " ".join(pr_policy.check(body, [], no_labels)))
+
+    def test_prose_mentioning_an_env_var_without_a_command_still_fails(self):
+        """`CI=true` alone, describing the environment rather than prefixing a command."""
+        body = self._evidence("CI=true is set for every pipeline run, so tests pass.")
+        self.assertIn("names no command", " ".join(pr_policy.check(body, [], no_labels)))
+
+
 if __name__ == "__main__":
     unittest.main()
