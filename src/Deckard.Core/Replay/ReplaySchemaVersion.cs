@@ -8,6 +8,10 @@ namespace Deckard.Core.Replay;
 /// revision. Nothing in <c>Deckard.Core</c> reads or writes a replay in this shape yet --
 /// serialization is explicitly out of scope for ADR 0005 -- this exists so the shape can be
 /// named and compared once something does.
+///
+/// Unlike its siblings, <c>default(ReplaySchemaVersion)</c> is not a validation gap: its
+/// only field is an <see langword="int"/>, <c>0</c> passes the constructor's own check,
+/// so <c>default(ReplaySchemaVersion) == new ReplaySchemaVersion(0)</c>.
 /// </summary>
 public readonly record struct ReplaySchemaVersion
 {

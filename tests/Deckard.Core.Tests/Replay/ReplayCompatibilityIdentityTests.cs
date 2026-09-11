@@ -10,11 +10,14 @@ namespace Deckard.Core.Tests.Replay;
 /// </summary>
 public sealed class ReplayCompatibilityIdentityTests
 {
+    private const string FirstPrintingHash = "7db88be98dbc2a4d1f777b7ff10034af3ea35e20bb3899b2aad95b7232bbac41";
+    private const string RepinnedHash = "0000000000000000000000000000000000000000000000000000000000000000";
+
     private static ReplayCompatibilityIdentity Baseline() => new(
         RandomAlgorithmId.Pcg32SetSeq64XshRr32,
         new RulesetVersion("sr6-core-ruleset", 1),
         new ReplaySchemaVersion(1),
-        new SourceBaselineId("sr6-core"));
+        new SourceBaselineId("sr6-core", FirstPrintingHash));
 
     [Fact]
     public void Identical_components_compare_equal()
@@ -55,10 +58,28 @@ public sealed class ReplayCompatibilityIdentityTests
     }
 
     [Fact]
-    public void Differing_only_in_source_baseline_is_unequal()
+    public void Differing_only_in_source_baseline_id_is_unequal()
     {
         ReplayCompatibilityIdentity a = Baseline();
-        ReplayCompatibilityIdentity b = a with { SourceBaseline = new SourceBaselineId("sr6-seattle-city-edition") };
+        ReplayCompatibilityIdentity b = a with
+        {
+            SourceBaseline = new SourceBaselineId("sr6-seattle-city-edition", FirstPrintingHash),
+        };
+
+        Assert.NotEqual(a, b);
+    }
+
+    [Fact]
+    public void Differing_only_in_source_baseline_hash_is_unequal()
+    {
+        // The specific gap this Issue's review found: a source-baseline re-pin edits
+        // sha256 in place and leaves sourceId untouched. An identity built from a
+        // SourceBaselineId that ignored the hash would miss this exact event.
+        ReplayCompatibilityIdentity a = Baseline();
+        ReplayCompatibilityIdentity b = a with
+        {
+            SourceBaseline = new SourceBaselineId("sr6-core", RepinnedHash),
+        };
 
         Assert.NotEqual(a, b);
     }

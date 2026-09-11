@@ -261,7 +261,17 @@ CORE_COMMENT_LINE = re.compile(r"^\s*(?://|\*)")
 
 
 def check_core_filesystem_boundary(root: Path) -> list[Failure]:
-    """Deckard.Core may not touch the filesystem -- ADR 0001, docs/architecture.md."""
+    """Deckard.Core may not touch the filesystem -- ADR 0001, docs/architecture.md.
+
+    CORE_COMMENT_LINE only recognises a WHOLE-LINE comment (a line whose first
+    non-whitespace characters are `//` or `*`). A trailing comment on a code line --
+    `var x = 1; // mentions File.ReadAllText` -- is still scanned in full and would be
+    caught. This is a deliberate simplification, not an oversight: correctly stripping a
+    trailing comment requires tracking string and char literals so a `//` inside one is
+    not mistaken for a comment start, which is more machinery than this check's job
+    justifies. Nothing in Core trips this today; if it ever does, move the mention to its
+    own comment line rather than teaching this check string-literal awareness.
+    """
     failures: list[Failure] = []
     core = root / "src" / "Deckard.Core"
     if not core.is_dir():

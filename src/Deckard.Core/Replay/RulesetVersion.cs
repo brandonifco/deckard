@@ -6,6 +6,11 @@ namespace Deckard.Core.Replay;
 /// source baseline names the pinned rulebook Deckard encodes (ADR 0003), while this names
 /// Deckard's own implementation of it, which revises independently as mechanics are added,
 /// corrected, or reinterpreted. See ADR 0005.
+///
+/// <c>default(RulesetVersion)</c> bypasses the constructor below entirely and yields a
+/// <see langword="null"/> <see cref="Id"/> paired with a valid-looking <c>Version</c> of
+/// <c>0</c> rather than throwing -- see ADR 0005's Consequences for why nothing closes
+/// that gap yet.
 /// </summary>
 public readonly record struct RulesetVersion
 {

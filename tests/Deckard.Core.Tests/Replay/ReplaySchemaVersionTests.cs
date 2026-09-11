@@ -29,4 +29,16 @@ public sealed class ReplaySchemaVersionTests
     {
         Assert.Throws<ArgumentOutOfRangeException>(() => new ReplaySchemaVersion(-1));
     }
+
+    [Fact]
+    public void Default_is_not_a_validation_gap_unlike_its_siblings()
+    {
+        // Unlike RandomAlgorithmId, RulesetVersion, and SourceBaselineId -- whose
+        // default(T) bypasses validation and yields a null string field -- this type's
+        // only field is an int, and 0 passes the constructor's own non-negative check.
+        // So default(ReplaySchemaVersion) is not a hidden bypass; it is indistinguishable
+        // from an explicitly constructed schema version 0. Pinned here so that fact is
+        // recorded rather than assumed. See ADR 0005 Consequences.
+        Assert.Equal(new ReplaySchemaVersion(0), default(ReplaySchemaVersion));
+    }
 }

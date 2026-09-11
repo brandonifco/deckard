@@ -267,6 +267,20 @@ class CoreFilesystemBoundaryTests(CheckTestCase):
         )
         self.assertEqual(repo_checks.check_core_filesystem_boundary(self.repo.root), [])
 
+    def test_trailing_comment_on_a_code_line_is_still_caught(self):
+        """Documents a known, deliberate limitation rather than leaving it unverified:
+        CORE_COMMENT_LINE only recognises a whole-line comment. A trailing comment on a
+        code line is not stripped first, so it is scanned along with the code and can
+        still trip the check -- unlike a comment occupying its own line, which
+        test_prose_mentioning_the_boundary_is_not_caught proves is safe."""
+        self.repo.write(
+            "src/Deckard.Core/Leak.cs",
+            "var x = 1; // mentions File.ReadAllText in passing\n",
+        )
+        self.assertCaught(
+            repo_checks.check_core_filesystem_boundary(self.repo.root), "touch the filesystem"
+        )
+
 
 class SourceBoundaryTests(CheckTestCase):
     def test_clean_repo_passes(self):

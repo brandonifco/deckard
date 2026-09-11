@@ -8,6 +8,10 @@ namespace Deckard.Core.Replay;
 /// sequence of <c>uint</c> values proves which generator produced it. See ADR 0002 for why
 /// PCG32 was chosen, and ADR 0005 for why this exists as a comparable value rather than a
 /// fact only a reviewer remembers.
+///
+/// <c>default(RandomAlgorithmId)</c> bypasses the constructor below entirely and yields a
+/// <see langword="null"/> <see cref="Name"/> rather than throwing -- see ADR 0005's
+/// Consequences for why nothing closes that gap yet.
 /// </summary>
 public readonly record struct RandomAlgorithmId
 {

@@ -49,4 +49,18 @@ public sealed class RandomAlgorithmIdTests
         // which exact subtype a null argument gets.
         Assert.ThrowsAny<ArgumentException>(() => new RandomAlgorithmId(name!));
     }
+
+    [Fact]
+    public void Default_bypasses_the_constructor_and_yields_a_null_name()
+    {
+        // Pins the documented gap (ADR 0005 Consequences): a struct's implicit
+        // parameterless constructor bypasses this type's constructor entirely. Nothing
+        // consumes RandomAlgorithmId yet, so there is no second entry point to
+        // re-validate at (contrast Pcg32.FromState, which re-checks Pcg32State because a
+        // real consumer exists for it).
+        var value = default(RandomAlgorithmId);
+
+        Assert.Null(value.Name);
+        Assert.NotEqual(RandomAlgorithmId.Pcg32SetSeq64XshRr32, value);
+    }
 }

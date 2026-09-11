@@ -39,6 +39,8 @@ layer in the shipped graph: it is `IsPackable=false`, ships to nobody, and
 
 Deterministic and general. **Core must not touch** the filesystem, a UI or game engine,
 ambient time, the network, environment variables, JSON files, or the rulebook.
+`tools/repo-checks.py --only core-filesystem` enforces the filesystem prohibition today,
+by scanning Core's own source text for filesystem API call sites.
 
 Eventually: deterministic randomness primitives, dice primitives, value types, stable
 IDs, result types, state-transition primitives, event records.

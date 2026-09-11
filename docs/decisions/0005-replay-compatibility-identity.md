@@ -63,7 +63,7 @@ Deckard.Core.Replay
 ├── RandomAlgorithmId            names the PRNG variant a sequence of draws came from
 ├── RulesetVersion                which ruleset, and at what revision of its mechanics
 ├── ReplaySchemaVersion            the shape of a recorded replay
-├── SourceBaselineId               the manifest's sourceId, passed in, never read
+├── SourceBaselineId               the manifest's sourceId + sha256, passed in, never read
 └── ReplayCompatibilityIdentity   the four above, compared as one value
 ```
 
@@ -72,7 +72,7 @@ Deckard.Core.Replay
 | `RandomAlgorithmId` | `Name` (e.g. `pcg_setseq_64_xsh_rr_32`) | value |
 | `RulesetVersion` | `Id`, `Version` (int) | value |
 | `ReplaySchemaVersion` | `Version` (int) | value |
-| `SourceBaselineId` | `SourceId` (e.g. `sr6-core`) | value |
+| `SourceBaselineId` | `SourceId` (e.g. `sr6-core`), `Sha256` | value |
 | `ReplayCompatibilityIdentity` | one of each above | value, all four |
 
 All five are `readonly record struct` types, so equality is the compiler-derived,
@@ -81,12 +81,13 @@ out of sync with the fields. `RandomAlgorithmId` additionally exposes
 `Pcg32SetSeq64XshRr32`, the one value Deckard produces today, naming PCG32's
 `pcg_setseq_64_xsh_rr_32` variant exactly as pinned by [ADR 0002](0002-deterministic-randomness.md).
 
-`SourceBaselineId` carries a `sourceId` string handed to it by a caller; it does not read
-`.github/source-manifest.json` itself. `Deckard.Core` may not touch the filesystem (ADR
-0001), and `tools/repo-checks.py --only core-filesystem` enforces that boundary
-mechanically. Resolving the manifest into a `SourceBaselineId` is a job for whatever layer
-is allowed to read it. Nothing here serializes, persists, records, or replays anything —
-`ReplayCompatibilityIdentity` exists to be constructed and compared, not stored.
+`SourceBaselineId` carries both `sourceId` and `sha256` handed to it by a caller; it does
+not read `.github/source-manifest.json` itself. `Deckard.Core` may not touch the
+filesystem (ADR 0001), and `tools/repo-checks.py --only core-filesystem` enforces that
+boundary mechanically. Resolving the manifest into a `SourceBaselineId` is a job for
+whatever layer is allowed to read it. Nothing here serializes, persists, records, or
+replays anything — `ReplayCompatibilityIdentity` exists to be constructed and compared,
+not stored.
 
 ## Reasoning
 
@@ -105,9 +106,15 @@ against `Pcg32SetSeq64XshRr32` — satisfying "exactly one value exists today" w
 closed type. A second algorithm is added as a second named `static readonly` field, not
 by loosening a closed type.
 
-**`SourceBaselineId` is passed in, never read.** ADR 0001 already forbids Core from
-touching the filesystem or JSON. Reaching into the manifest from `Deckard.Core` would
-violate that boundary solely to build a value the caller already has cheaper access to.
+**`SourceBaselineId` carries `sourceId` *and* `sha256`, both passed in, never read.**
+A source-baseline re-pin edits the manifest's `sha256` field of the existing entry in
+place and leaves `sourceId` unchanged (ADR 0003; the manifest's own comment: "Changing a
+sha256 here ... requires its own Issue, its own PR, and an ADR"). An identifier carrying
+only `sourceId` would compare equal across exactly the event it exists to detect — the
+error Issue #38 was originally filed with and corrected before implementation; see its
+"Known ambiguity" section. Separately, ADR 0001 already forbids Core from touching the
+filesystem or JSON, so reaching into the manifest from `Deckard.Core` to obtain either
+value would violate that boundary for values the caller already has cheaper access to.
 
 **No serialization here.** ADR 0001 already establishes that Core takes no serializer
 dependency, and this Issue is about *detecting* a mismatch, not reconciling one. Building
@@ -152,6 +159,19 @@ three unaddressed:
 - `RulesetVersion` and `ReplaySchemaVersion` are expected to change often. Nothing here
   requires an ADR for every bump; doing so would misapply the process
   `docs/decisions/README.md` sets out for foundational decisions to ordinary engineering.
+- **Known limitation, deliberately left open:** all five types are `readonly record
+  struct`s, so a struct's implicit parameterless constructor (`default(T)`, `new T()`, or
+  a deserializer setting fields directly) bypasses every constructor above entirely — the
+  same hole PR #34 documented for `Pcg32State`. `default(RandomAlgorithmId)`,
+  `default(RulesetVersion)`, and `default(SourceBaselineId)` each yield a value whose
+  string field(s) are `null` rather than throwing; `default(ReplaySchemaVersion)` is not
+  actually a hole, since its only field is an `int` and `0` passes validation anyway.
+  `Pcg32.FromState` closes the equivalent hole for `Pcg32State` by re-validating at its
+  one consuming entry point; no such entry point exists yet here, so there is nowhere to
+  put a second gate without inventing a consumer this Issue does not need. The first code
+  that accepts one of these values from outside its own constructor — a future replay
+  loader, most likely — must treat a `null` string field as invalid input before trusting
+  it. Pinned by test in `tests/Deckard.Core.Tests/Replay/`.
 
 ## Rejected alternatives
 
