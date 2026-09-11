@@ -39,7 +39,7 @@ sys.modules["rules_conformance_gate"] = gate
 _spec.loader.exec_module(gate)
 
 IN_HOUSE = gate.IN_HOUSE_CONTEXT
-INDEPENDENT = gate.INDEPENDENT_CONTEXT
+CODEX, GEMINI, IN_HOUSE_INDEPENDENT = gate.INDEPENDENT_CONTEXTS
 
 RULES_FILE = "M\tsrc/Deckard.Rules/DiceTest.cs\n"
 DOCS_FILE = "M\tdocs/roadmap.md\n"
@@ -89,20 +89,20 @@ class RulesSurfaceTouchedTests(unittest.TestCase):
         )
 
 
-class RequiredContextsTests(unittest.TestCase):
-    def test_ordinary_issue_requires_only_the_in_house_verdict(self):
-        contexts, notes = gate.required_contexts(["state:ready", "area:tooling"])
-        self.assertEqual(contexts, [IN_HOUSE])
+class IndependentVerdictRequiredTests(unittest.TestCase):
+    def test_ordinary_issue_does_not_require_an_independent_verdict(self):
+        required, notes = gate.independent_verdict_required(["state:ready", "area:tooling"])
+        self.assertFalse(required)
         self.assertEqual(notes, [])
 
-    def test_risk_labelled_issue_requires_both(self):
-        contexts, notes = gate.required_contexts(["risk:rules-conformance"])
-        self.assertEqual(contexts, [IN_HOUSE, INDEPENDENT])
+    def test_risk_labelled_issue_requires_an_independent_verdict(self):
+        required, notes = gate.independent_verdict_required(["risk:rules-conformance"])
+        self.assertTrue(required)
         self.assertTrue(notes)
 
-    def test_unresolved_labels_fail_safe_to_requiring_both(self):
-        contexts, notes = gate.required_contexts(None)
-        self.assertEqual(contexts, [IN_HOUSE, INDEPENDENT])
+    def test_unresolved_labels_fail_safe_to_requiring_an_independent_verdict(self):
+        required, notes = gate.independent_verdict_required(None)
+        self.assertTrue(required)
         self.assertTrue(notes)
 
 
@@ -148,24 +148,51 @@ class EvaluateTests(unittest.TestCase):
         self.assertFalse(result.passed)
 
     def test_risk_label_with_only_in_house_verdict_is_blocked(self):
+        """Acceptance criterion: the gate FAILS with the in-house verdict alone."""
         result = gate.evaluate(RULES_FILE, ["risk:rules-conformance"], [status(IN_HOUSE)])
         self.assertFalse(result.passed)
-        self.assertIn(INDEPENDENT, " ".join(result.reasons))
+        self.assertIn("no independent verdict recorded", " ".join(result.reasons))
 
-    def test_risk_label_with_both_verdicts_passes(self):
+    def test_risk_label_passes_with_codex_as_the_independent_verdict(self):
+        """Acceptance criterion: passes for each of the three independent contexts."""
         result = gate.evaluate(
-            RULES_FILE, ["risk:rules-conformance"], [status(IN_HOUSE), status(INDEPENDENT)]
+            RULES_FILE, ["risk:rules-conformance"], [status(IN_HOUSE), status(CODEX)]
         )
-        self.assertTrue(result.passed)
+        self.assertTrue(result.passed, result.reasons)
+
+    def test_risk_label_passes_with_gemini_as_the_independent_verdict(self):
+        """Acceptance criterion: passes for each of the three independent contexts."""
+        result = gate.evaluate(
+            RULES_FILE, ["risk:rules-conformance"], [status(IN_HOUSE), status(GEMINI)]
+        )
+        self.assertTrue(result.passed, result.reasons)
+
+    def test_risk_label_passes_with_in_house_independent_as_the_fallback_verdict(self):
+        """Acceptance criterion: passes for each of the three independent contexts."""
+        result = gate.evaluate(
+            RULES_FILE, ["risk:rules-conformance"],
+            [status(IN_HOUSE), status(IN_HOUSE_INDEPENDENT)],
+        )
+        self.assertTrue(result.passed, result.reasons)
+
+    def test_a_generic_independent_context_is_not_accepted(self):
+        """The vendor-naming requirement (Issue #83): a collapsed, unnamed
+        'deckard-verdict/independent' context must not satisfy the gate -- only the
+        three explicitly named contexts in INDEPENDENT_CONTEXTS may."""
+        result = gate.evaluate(
+            RULES_FILE, ["risk:rules-conformance"],
+            [status(IN_HOUSE), status("deckard-verdict/independent")],
+        )
+        self.assertFalse(result.passed)
 
     def test_non_risk_label_does_not_require_the_independent_verdict(self):
         result = gate.evaluate(RULES_FILE, ["area:tooling"], [status(IN_HOUSE)])
         self.assertTrue(result.passed)
 
-    def test_unresolved_labels_require_both_verdicts(self):
+    def test_unresolved_labels_require_an_independent_verdict_too(self):
         result = gate.evaluate(RULES_FILE, None, [status(IN_HOUSE)])
         self.assertFalse(result.passed)
-        self.assertIn(INDEPENDENT, " ".join(result.reasons))
+        self.assertIn("no independent verdict recorded", " ".join(result.reasons))
 
     def test_a_verdict_for_a_different_context_does_not_satisfy_the_requirement(self):
         result = gate.evaluate(RULES_FILE, ["state:ready"], [status("some-other-check")])
@@ -346,11 +373,14 @@ exit 1
         )
         self.assertEqual(only_in_house.returncode, 1, only_in_house.stdout)
 
-        both = self.run_cli(
-            "--pr", "9", issue_labels=["risk:rules-conformance"],
-            statuses=[status(IN_HOUSE), status(INDEPENDENT)],
-        )
-        self.assertEqual(both.returncode, 0, both.stdout)
+        # Any ONE of the three vendor-named independent contexts satisfies the gate.
+        for independent_context in (CODEX, GEMINI, IN_HOUSE_INDEPENDENT):
+            with self.subTest(context=independent_context):
+                result = self.run_cli(
+                    "--pr", "9", issue_labels=["risk:rules-conformance"],
+                    statuses=[status(IN_HOUSE), status(independent_context)],
+                )
+                self.assertEqual(result.returncode, 0, result.stdout)
 
     def test_offline_mode_needs_no_gh_at_all(self):
         changed = self.tmp / "changed.txt"

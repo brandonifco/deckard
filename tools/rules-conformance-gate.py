@@ -30,8 +30,13 @@ tools/lib/rules-surface.sh, the same file tools/review-packet.sh uses, so a revi
 packet and this gate can never disagree about what counts as rules work.
 
 For an Issue labelled risk:rules-conformance, a second, independent verdict is required
-too (docs/agent-team.md, AGENTS.md "Codex: independent rules conformance") -- the
-in-house agent's verdict alone is not enough for the mechanics this label exists to flag.
+too (docs/agent-team.md, AGENTS.md) -- the in-house agent's verdict alone is not enough
+for the mechanics this label exists to flag. That independent verdict is not pinned to
+one vendor: it follows an ordered fallback chain -- Codex, then Gemini, then an in-house
+second pass only when neither vendor is reachable (Issue #83, ADR
+0010-independent-verdict-fallback-chain.md). Each vendor posts to its own named context,
+so INDEPENDENT_CONTEXTS below is the set of acceptable contexts, not a single string --
+the gate passes when the in-house verdict AND any ONE of them is present and passing.
 """
 from __future__ import annotations
 
@@ -50,7 +55,19 @@ RULES_SURFACE_LIB = ROOT / "tools" / "lib" / "rules-surface.sh"
 # Every verdict context this gate knows how to require. The reviewer name IS the context
 # suffix -- tools/record-verdict.sh posts to exactly one of these.
 IN_HOUSE_CONTEXT = "deckard-verdict/rules-conformance"
-INDEPENDENT_CONTEXT = "deckard-verdict/codex"
+
+# The independent verdict's ordered fallback chain (Issue #83, ADR
+# 0010-independent-verdict-fallback-chain.md): Codex first, then Gemini, then an in-house
+# second pass only when neither vendor is reachable. Each vendor posts to its own named
+# context rather than a shared generic one, so a reader of a merged commit's statuses can
+# tell a genuine cross-vendor verdict from a same-vendor fallback without opening a
+# transcript. This tuple is an OR, not an AND: the gate is satisfied by ANY ONE of these
+# being present and passing, on top of the always-required IN_HOUSE_CONTEXT.
+INDEPENDENT_CONTEXTS = (
+    "deckard-verdict/codex",
+    "deckard-verdict/gemini",
+    "deckard-verdict/in-house-independent",
+)
 RISK_LABEL = "risk:rules-conformance"
 
 # A verdict's `description` (the GitHub Statuses API field, <=140 chars) must name the
@@ -97,22 +114,41 @@ def rules_surface_touched(changed_files_name_status: str) -> bool:
     return result.returncode == 0
 
 
-def required_contexts(labels: list[str] | None) -> tuple[list[str], list[str]]:
-    """Returns (required_contexts, notes). `labels=None` means the linked Issue's labels
-    could not be determined -- fail SAFE by requiring the independent verdict too, rather
-    than silently accepting only the in-house one because a lookup happened to fail."""
-    notes: list[str] = []
-    contexts = [IN_HOUSE_CONTEXT]
+def independent_verdict_required(labels: list[str] | None) -> tuple[bool, list[str]]:
+    """Returns (required, notes). `labels=None` means the linked Issue's labels could not
+    be determined -- fail SAFE by requiring the independent verdict too, rather than
+    silently accepting only the in-house one because a lookup happened to fail."""
     if labels is None:
-        contexts.append(INDEPENDENT_CONTEXT)
-        notes.append(
-            "could not determine the linked Issue's labels; requiring the independent "
-            f"verdict ({INDEPENDENT_CONTEXT}) as a precaution"
+        return True, [
+            "could not determine the linked Issue's labels; requiring an independent "
+            f"verdict (any one of {', '.join(INDEPENDENT_CONTEXTS)}) as a precaution"
+        ]
+    if RISK_LABEL in labels:
+        return True, [
+            f"linked Issue is labelled {RISK_LABEL}: an independent verdict is required "
+            f"too (any one of {', '.join(INDEPENDENT_CONTEXTS)})"
+        ]
+    return False, []
+
+
+def _check_verdict(context: str, by_context: dict) -> tuple[bool, str]:
+    """Checks one context against the combined-status map. Returns (ok, message) --
+    the message is a success note when ok, otherwise the specific reason it failed, so
+    the same helper serves both the always-required in-house check and each attempt in
+    the independent-verdict fallback chain."""
+    status = by_context.get(context)
+    if status is None:
+        return False, f"no verdict recorded at '{context}' for this head commit"
+    state = status.get("state")
+    if state != "success":
+        return False, f"'{context}' verdict for this head commit is '{state}', not success"
+    description = status.get("description") or ""
+    if not VERDICT_RE.search(description):
+        return False, (
+            f"'{context}' verdict does not name a packet bodySha256 and page range "
+            f"(description: {description!r})"
         )
-    elif RISK_LABEL in labels:
-        contexts.append(INDEPENDENT_CONTEXT)
-        notes.append(f"linked Issue is labelled {RISK_LABEL}: independent verdict required too")
-    return contexts, notes
+    return True, f"'{context}': verified ({description})"
 
 
 def evaluate(
@@ -130,28 +166,27 @@ def evaluate(
             reasons=["no rules-surface file changed for this head commit; gate passes trivially"],
         )
 
-    contexts, notes = required_contexts(labels)
+    require_independent, notes = independent_verdict_required(labels)
     by_context = {s.get("context"): s for s in statuses}
     reasons: list[str] = list(notes)
     failures: list[str] = []
 
-    for ctx in contexts:
-        status = by_context.get(ctx)
-        if status is None:
-            failures.append(f"no verdict recorded at '{ctx}' for this head commit")
-            continue
-        state = status.get("state")
-        if state != "success":
-            failures.append(f"'{ctx}' verdict for this head commit is '{state}', not success")
-            continue
-        description = status.get("description") or ""
-        if not VERDICT_RE.search(description):
+    in_house_ok, in_house_msg = _check_verdict(IN_HOUSE_CONTEXT, by_context)
+    (reasons if in_house_ok else failures).append(in_house_msg)
+
+    if require_independent:
+        # An OR across the fallback chain, not an AND: any one passing satisfies the
+        # requirement, in whatever order the chain lists them (Codex, Gemini, in-house).
+        attempts = [_check_verdict(ctx, by_context) for ctx in INDEPENDENT_CONTEXTS]
+        passing = next((msg for ok, msg in attempts if ok), None)
+        if passing is not None:
+            reasons.append(passing)
+        else:
             failures.append(
-                f"'{ctx}' verdict does not name a packet bodySha256 and page range "
-                f"(description: {description!r})"
+                "no independent verdict recorded at any of "
+                f"{', '.join(INDEPENDENT_CONTEXTS)} for this head commit"
             )
-            continue
-        reasons.append(f"'{ctx}': verified ({description})")
+            failures.extend(msg for _, msg in attempts)
 
     if failures:
         reasons = failures + reasons
