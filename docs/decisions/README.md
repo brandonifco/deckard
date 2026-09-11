@@ -43,3 +43,4 @@ trail survives.
 | [0004](0004-unresolved-rule-taxonomy.md) | Unresolved-rule taxonomy | Accepted |
 | [0005](0005-replay-compatibility-identity.md) | Replay compatibility identity | Accepted |
 | [0006](0006-deterministic-ordering-conventions.md) | Deterministic ordering conventions for observable sequences | Accepted |
+| [0007](0007-opposed-test-tie-break-interpretation.md) | Opposed test tie-break: aggressor mapped to the acting side | Accepted |

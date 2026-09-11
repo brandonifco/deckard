@@ -14,6 +14,7 @@
 
   <ItemGroup>
     <ProjectReference Include="../../src/Deckard.Rules/Deckard.Rules.csproj" />
+    <ProjectReference Include="../Deckard.Testing/Deckard.Testing.csproj" />
   </ItemGroup>
 
   <ItemGroup>
