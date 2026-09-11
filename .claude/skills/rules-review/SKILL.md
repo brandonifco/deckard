@@ -69,6 +69,21 @@ for documentation.
 A PR that touches no rules file stops after step 1. That is a complete review for that
 PR, not a shortened one.
 
+## Record the verdict (rules-only)
+
+For a PR touching a rules surface, a review is not finished when the agent reports its
+conclusion in chat — that conclusion has to become something `rules-conformance-gate`
+(the required check; see `docs/agent-team.md`, "Recording a verdict") can actually see.
+Once `rules-conformance` (and Codex, when required) conclude, record each verdict:
+
+```bash
+tools/record-verdict.sh --sha <head-sha> --reviewer rules-conformance \
+  --verdict pass --packet-sha256 <bodySha256> --pages <range> --pr <N> --rerun-gate
+```
+
+Do not skip this because the review "obviously passed" — an unrecorded verdict is
+mechanically indistinguishable from a review that never happened.
+
 ## The independence rule (rules-only)
 
 **Codex does not see the first verifier's conclusions before producing its own.** Showing

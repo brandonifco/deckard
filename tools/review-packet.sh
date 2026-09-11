@@ -28,6 +28,9 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
+# shellcheck source=lib/rules-surface.sh
+source "$REPO_ROOT/tools/lib/rules-surface.sh"
+
 ISSUE=""
 BRANCH=""
 BASE="origin/main"
@@ -185,16 +188,13 @@ diff_text="$(git diff -U"$CONTEXT" "$range")" || die "git diff failed for $range
 # .claude/skills/rules-review/SKILL.md "Order the reviews cheapest first". A generic
 # structural packet does not decide this by re-reading the Issue's labels: it looks at
 # what actually changed, which is the fact the reviewer downstream will also see.
-RULES_PATHS='^(src/Deckard\.(Rules|Data)/|tests/Deckard\.(Rules|Data)\.Tests/|\.github/source-manifest\.json$)'
+#
+# The detection itself -- the path set and the rename-safe splitting of `git diff
+# --name-status` output -- lives once, in tools/lib/rules-surface.sh (sourced above), so
+# tools/rules-conformance-gate.py's merge-gate decision can never drift from what this
+# packet tells a reviewer to expect (Issue #41).
 rules_touch=0
-# `git diff --name-status` puts a rename or a copy on ONE line: "R100<TAB>old<TAB>new"
-# (copies are "C<score>" -- same two-path shape). `cut -f2-` keeps both paths but joined
-# by the same tab, so the `^`-anchored regex above only ever tests the line's first
-# path. A rename that moves a file INTO src/Deckard.Rules (old outside, new inside) was
-# invisible here: only the "old" path anchored the line, and it isn't a rules path.
-# Splitting every remaining tab onto its own line makes each path -- old and new, or the
-# single path on an M/A/D line -- its own anchor-testable line.
-if cut -f2- <<<"$changed_files" | tr '\t' '\n' | grep -qE "$RULES_PATHS"; then
+if rules_surface_touched "$changed_files"; then
   rules_touch=1
 fi
 
