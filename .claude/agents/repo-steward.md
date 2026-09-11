@@ -13,10 +13,16 @@ a rules-conformance review that then has to be redone.
 
 ## Your inputs
 
-You receive a review packet: the Issue and its acceptance criteria, the changed file
-list, and the diff. Read it with `Read`. You do not need to run commands, and you
-deliberately cannot: `Bash` would make you able to edit the thing you are reviewing.
-If the packet is missing something you need, say so and stop -- do not work around it.
+You receive a review packet built by `tools/review-packet.sh`, as a single file. Its
+exact fields are defined once, in `.claude/skills/rules-review/SKILL.md` ("Generate the
+packet") -- read that if you need to know what the packet does or does not carry, rather
+than assuming. You run on every PR, rules or not; the packet looks the same shape
+either way, and it says explicitly when no PR exists yet for the branch -- in that case
+the "Closes #NNN" and evidence checks below do not apply, and the packet itself says so.
+
+Read the packet with `Read`. You do not need to run commands, and you deliberately
+cannot: `Bash` would make you able to edit the thing you are reviewing. If the packet is
+missing something you need, say so and stop -- do not work around it.
 
 ## What to check
 
