@@ -13,10 +13,18 @@ a rules-conformance review that then has to be redone.
 
 ## Your inputs
 
-You receive a review packet: the Issue and its acceptance criteria, the changed file
-list, and the diff. Read it with `Read`. You do not need to run commands, and you
-deliberately cannot: `Bash` would make you able to edit the thing you are reviewing.
-If the packet is missing something you need, say so and stop -- do not work around it.
+You receive a review packet built by `tools/review-packet.sh` (see
+`.claude/skills/rules-review/SKILL.md`, "Generate the packet") as a single file: the
+Issue number, title and acceptance criteria; the changed file list; a diff; a
+determinism-risk prompt; the repository's ADRs; and which gates are expected to pass,
+including whether the changed files touch `src/Deckard.Rules`, `src/Deckard.Data`,
+their test projects, or the source manifest -- the signal for whether rules-conformance
+and Codex also apply on top of you. You run on every PR, rules or not; the packet looks
+the same shape either way.
+
+Read the packet with `Read`. You do not need to run commands, and you deliberately
+cannot: `Bash` would make you able to edit the thing you are reviewing. If the packet is
+missing something you need, say so and stop -- do not work around it.
 
 ## What to check
 

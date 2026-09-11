@@ -1,41 +1,66 @@
 ---
 name: rules-review
-description: Build a bounded review packet and dispatch verification of a rules change. Use when a PR implements or modifies a Shadowrun mechanic.
+description: Build a bounded review packet and dispatch review of a Deckard PR. Use for any PR under review, not only one that touches a Shadowrun mechanic -- the packet and the repo-steward step apply to every PR; rules-conformance and Codex are the additional rules-only steps inside it.
 ---
 
-# Reviewing a rules change
+# Reviewing a Deckard PR
 
 ## Never say "review this PR"
 
-A verifier told only that rediscovers context through dozens of searches, costs far more,
-and reviews worse. Hand it the facts.
+A verifier told only that rediscovers context through dozens of searches, costs far
+more, and reviews worse. Hand it the facts — for every PR, not only a rules change.
 
-## The review packet
+## Generate the packet
 
-Assemble and pass directly:
+```bash
+tools/review-packet.sh --issue <N> --branch <branch-or-ref> [--base origin/main] \
+  [--context 3] [--output /tmp/packet-<N>.md]
+```
 
-1. the **Issue number** and its acceptance criteria
+This is the one place the packet is assembled, so every reviewer sees the same bytes
+built the same way — a hand-assembled packet is how the two fields drift. It prints to
+stdout unless `--output` is given, and refuses to write inside the repository unless the
+path is already gitignored: packets are ephemeral and must never be committed, exactly
+like the source packets `tools/source-slice.py` produces.
+
+The generated packet contains:
+
+1. the **Issue number**, **title** and **acceptance criteria**
 2. the **changed file list**
-3. a **compact diff** — `git diff -U1` where the change is mechanical, wider where the
-   semantics need surrounding context
-4. the **source locator** and the **raw source packet** itself
-5. the **determinism risk** — does this touch random consumption, ordering, or replay?
-6. **decisions already recorded** — relevant ADRs, so the reviewer does not relitigate them
-7. **which gates** are expected to pass
+3. a **diff** at `--context` lines of surrounding code (default 3; narrow it for a
+   mechanical change, widen it where semantics need more context)
+4. the Issue's **source locator**, verbatim (`N/A` for non-rules work; a citation for
+   rules work — fetch the actual excerpt separately with `tools/source-slice.py`, since
+   this packet never carries rulebook text)
+5. a **determinism risk prompt**
+6. every recorded **ADR**, so the reviewer does not relitigate a decision
+7. **which gates** are expected to pass, including whether the changed files touch
+   `src/Deckard.Rules`, `src/Deckard.Data`, their test projects, or the source
+   manifest — the signal for whether rules-conformance and Codex apply on top of
+   repo-steward
 
-Name the exact guide and packet to read. Never tell an agent to search the repository for
-documentation.
+This list is the packet's one definition. Do not re-enumerate its fields elsewhere —
+point here instead (see `docs/agent-team.md`, "Briefing agents").
+
+Name the exact packet file to the reviewer. Never tell an agent to search the repository
+for documentation.
 
 ## Order the reviews cheapest first
 
 1. **`repo-steward`** — scope, unrelated changes, determinism, provenance, docs sync.
-   Cheap. Catching an out-of-scope file here saves redoing an expensive review later.
+   Cheap, read-only, and runs on **every** PR. Catching an out-of-scope file here saves
+   redoing an expensive review later.
 2. **`rules-conformance`** — adversarial verification against the source packet.
-3. **Codex** — independent cross-vendor verification, for high-impact rules only: dice and
-   test mechanics, Edge semantics, core formulas, initiative and action ordering, damage
-   resolution, table transcriptions.
+   **Rules-only**: dispatch it only when the PR implements or modifies a Shadowrun
+   mechanic — the packet's own "touches Rules/Data" line says so.
+3. **Codex** — independent cross-vendor verification. **Rules-only**, and only for
+   high-impact rules: dice and test mechanics, Edge semantics, core formulas, initiative
+   and action ordering, damage resolution, table transcriptions.
 
-## The independence rule
+A PR that touches no rules file stops after step 1. That is a complete review for that
+PR, not a shortened one.
+
+## The independence rule (rules-only)
 
 **Codex does not see the first verifier's conclusions before producing its own.** Showing
 a second reviewer the first reviewer's findings destroys the independence that is the
@@ -47,10 +72,15 @@ implementer's explanation.
 ## Reviewers are read-only
 
 A reviewer that edits what it reviews is not a reviewer. Findings come back as reports;
-fixes go to the implementing agent in its worktree.
+fixes go to the implementing agent in its worktree. This applies to `repo-steward` on
+every PR, not only a rules change.
 
 ## What a good verdict looks like
 
-Exhaustive where the book is finite: "verified all 11 rows; rows 4 and 9 disagree" beats
-"looks correct". A reviewer that always approves and a reviewer that always finds
-something are equally useless.
+For a structural review, specificity is what makes a finding actionable: file, line, what
+is wrong, why it matters — or a plain statement that nothing was found. Never an invented
+finding to look thorough.
+
+For a rules review, exhaustive where the book is finite: "verified all 11 rows; rows 4
+and 9 disagree" beats "looks correct". A reviewer that always approves and a reviewer
+that always finds something are equally useless.

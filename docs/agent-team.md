@@ -51,22 +51,19 @@ entire reason for asking twice.
 
 ## Briefing agents
 
-Never brief a verifier with "review this PR". Rediscovering context through dozens of
-repository searches is expensive, slow, and produces worse reviews than simply being
-told the facts.
+Never brief a verifier with "review this PR" — for any PR, not only a rules change.
+Rediscovering context through dozens of repository searches is expensive, slow, and
+produces worse reviews than simply being told the facts.
 
-Generate a bounded review packet containing:
+Generate the packet with `tools/review-packet.sh --issue <N> --branch <ref>`. Its exact
+fields are defined once, in `.claude/skills/rules-review/SKILL.md` ("Generate the
+packet") — that skill's packet-and-`repo-steward` step applies to every PR under review,
+not only ones that touch a Shadowrun mechanic. Restating the field list here as well
+would be a second copy of the same fact, which is exactly what
+`tools/repo-checks.py --only invariant-drift` exists to catch drifting.
 
-- the Issue number and its acceptance criteria
-- the changed file list
-- a compact diff (`-U1` where the change is mechanical; wider where semantics matter)
-- the required source locator, and the source packet itself
-- the determinism risk of the change
-- decisions already made and recorded
-- exactly which gates are expected to pass
-
-Tell the agent precisely which guide and which packet to read. Never tell an agent to
-"search the repository for the documentation."
+Tell the agent precisely which guide and which packet file to read. Never tell an agent
+to "search the repository for the documentation."
 
 ## Worktrees
 
