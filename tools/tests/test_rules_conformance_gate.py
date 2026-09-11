@@ -89,6 +89,78 @@ class RulesSurfaceTouchedTests(unittest.TestCase):
         )
 
 
+class RulesSurfaceLockFileExclusionTests(unittest.TestCase):
+    """Issue #86: a directory match alone is not enough. NuGet's
+    RestorePackagesWithLockFile (#43) writes packages.lock.json beside each project file
+    it locks, landing it under src/Deckard.Rules/, src/Deckard.Data/ and their test
+    projects -- a hash manifest of transitive package versions, not rules content, and
+    one that can never carry a printed-page citation. This is the exact diff shape that
+    blocked PR #82.
+    """
+
+    def test_rules_lock_file_alone_is_not_a_rules_surface(self):
+        self.assertFalse(
+            gate.rules_surface_touched("M\tsrc/Deckard.Rules/packages.lock.json\n")
+        )
+
+    def test_data_lock_file_alone_is_not_a_rules_surface(self):
+        self.assertFalse(
+            gate.rules_surface_touched("M\tsrc/Deckard.Data/packages.lock.json\n")
+        )
+
+    def test_rules_tests_lock_file_alone_is_not_a_rules_surface(self):
+        self.assertFalse(
+            gate.rules_surface_touched("M\ttests/Deckard.Rules.Tests/packages.lock.json\n")
+        )
+
+    def test_data_tests_lock_file_alone_is_not_a_rules_surface(self):
+        self.assertFalse(
+            gate.rules_surface_touched("M\ttests/Deckard.Data.Tests/packages.lock.json\n")
+        )
+
+    def test_dicepool_roll_still_counts(self):
+        """A real rules file, in the same directory the lock file lives in, must still
+        trip the gate -- the exclusion is by exact basename, not by directory."""
+        self.assertTrue(
+            gate.rules_surface_touched(
+                "M\tsrc/Deckard.Rules/Resolution/DicePoolRoll.cs\n"
+            )
+        )
+
+    def test_source_manifest_still_counts(self):
+        """The case most likely to break: a wider exclusion (e.g. "*.json") would also
+        swallow this file, which is deliberately part of the rules surface."""
+        self.assertTrue(gate.rules_surface_touched("M\t.github/source-manifest.json\n"))
+
+    def test_lock_file_does_not_hide_a_real_rules_file_in_the_same_diff(self):
+        """The blocked-PR shape: a lock file change riding alongside a genuine rules
+        change in the same `git diff --name-status` output must still trip the gate."""
+        self.assertTrue(
+            gate.rules_surface_touched(
+                "M\tsrc/Deckard.Rules/packages.lock.json\n"
+                "M\tsrc/Deckard.Rules/Resolution/DicePoolRoll.cs\n"
+            )
+        )
+
+    def test_rename_of_a_cs_file_into_a_rules_directory_still_counts(self):
+        """The rename/copy shape (`R100<TAB>old<TAB>new`) must survive the exclusion
+        check -- excluding by basename must not accidentally blind the rename handling."""
+        self.assertTrue(
+            gate.rules_surface_touched(
+                "R100\ttools/Foo.cs\tsrc/Deckard.Rules/Resolution/Foo.cs\n"
+            )
+        )
+
+    def test_rename_of_a_lock_file_into_a_rules_directory_does_not_count(self):
+        """A rename is just another way a path lands in the tree -- the destination
+        basename is still what gets excluded, whether the file is new or moved."""
+        self.assertFalse(
+            gate.rules_surface_touched(
+                "R100\ttools/packages.lock.json\tsrc/Deckard.Rules/packages.lock.json\n"
+            )
+        )
+
+
 class IndependentVerdictRequiredTests(unittest.TestCase):
     def test_ordinary_issue_does_not_require_an_independent_verdict(self):
         required, notes = gate.independent_verdict_required(["state:ready", "area:tooling"])
