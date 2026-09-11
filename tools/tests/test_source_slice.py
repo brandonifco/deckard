@@ -311,11 +311,43 @@ class SourceSliceTests(unittest.TestCase):
         self.assertIn("Glitch", result.stderr)
 
     @NEEDS_PDFTOTEXT
-    def test_oversize_packet_refuses_without_opt_in(self):
+    def test_oversize_packet_always_refuses(self):
+        """There is no opt-in left: a request above MAX_PAGES refuses, full stop (#42)."""
         big = self._write_manifest(self.sha, page_count=400)
         result = self.run_tool("--pages", "1-40", manifest=big)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Refusing to extract", result.stderr)
+
+    def test_there_is_no_allow_large_escape_hatch(self):
+        """`--allow-large` is gone entirely, not merely undocumented (#42).
+
+        It used to impose no ceiling of its own: passing it let a single packet
+        request extract the entire 322-page baseline. Removing the flag -- rather
+        than giving it a second, larger ceiling -- is what makes "packets are
+        bounded to 24 pages" (docs/source-handling.md) true of the tool as shipped.
+        Nothing in the repository (agent tooling, docs, or the source-packet skill)
+        ever invoked it.
+        """
+        help_text = subprocess.run(
+            [sys.executable, str(TOOL), "--help"], capture_output=True, text=True, check=False
+        ).stdout
+        self.assertNotIn("--allow-large", help_text)
+
+    @NEEDS_PDFTOTEXT
+    def test_oversize_packet_refuses_even_if_the_old_flag_is_passed(self):
+        """Regression guard for the exact bug #42 reports.
+
+        Before this fix, `--allow-large` made check_packet_size's ceiling
+        unconditional-bypass-able with no ceiling of its own. This asserts a
+        request above MAX_PAGES is refused even when a caller still passes the
+        now-nonexistent flag -- it must fail as an unrecognized argument, never as
+        a silently accepted, unbounded extraction.
+        """
+        big = self._write_manifest(self.sha, page_count=400)
+        result = self.run_tool("--pages", "1-40", "--allow-large", manifest=big)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("unrecognized arguments", result.stderr)
+        self.assertIn("--allow-large", result.stderr)
 
     @NEEDS_PDFTOTEXT
     def test_no_page_selection_refuses(self):
