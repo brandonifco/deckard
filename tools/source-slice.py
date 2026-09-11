@@ -234,20 +234,29 @@ def check_bounds(source: dict, first: int, last: int) -> None:
 MAX_PAGES = 24
 
 
-def check_packet_size(first: int, last: int, allow_large: bool) -> None:
-    """Source packets are bounded on purpose.
+def check_packet_size(first: int, last: int) -> None:
+    """Source packets are bounded on purpose, with no override.
 
     A large slice is how a repository accidentally grows a full transcription of a
     commercial rulebook, and how an agent's context fills with material it will not
     read carefully. Wanting 40 pages at once is almost always a sign the Issue is
     too broad, not that the limit is wrong.
+
+    There used to be an `--allow-large` escape hatch here. It had no ceiling of its
+    own, so it could extract the entire 322-page baseline in one packet -- the exact
+    outcome this function exists to prevent (#42). Nothing in the repository ever
+    invoked it: not the agent tooling, not docs/source-handling.md, not the
+    source-packet skill. Deleting it is what makes "packets are bounded to
+    MAX_PAGES pages" (docs/source-handling.md) true of the tool as shipped, rather
+    than true only when nobody passes a flag. Wanting more than MAX_PAGES pages in
+    one packet means narrowing the Issue, not reaching for a bigger flag.
     """
     count = last - first + 1
-    if count > MAX_PAGES and not allow_large:
+    if count > MAX_PAGES:
         raise SourceSliceError(
             f"Refusing to extract {count} pages in one packet (limit {MAX_PAGES}).\n"
             "Source packets are bounded by design -- see docs/source-handling.md.\n"
-            "Narrow the Issue, or pass --allow-large if this genuinely is one mechanic."
+            "Narrow the Issue. There is no flag to extract more than this in one packet."
         )
 
 
@@ -396,9 +405,6 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--output", help="write here instead of stdout")
     parser.add_argument(
-        "--allow-large", action="store_true", help=f"permit more than {MAX_PAGES} pages"
-    )
-    parser.add_argument(
         "--verify-only",
         action="store_true",
         help="verify configuration and hash, extract nothing",
@@ -422,7 +428,7 @@ def main(argv: list[str] | None = None) -> int:
         first, last = parse_range(args.pages, "pages")
 
     check_bounds(source, first, last)
-    check_packet_size(first, last, args.allow_large)
+    check_packet_size(first, last)
 
     require_pdftotext()
     version = extractor_version()
