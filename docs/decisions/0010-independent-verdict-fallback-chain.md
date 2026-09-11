@@ -23,6 +23,21 @@ treats these three contexts as a set: the gate passes when the always-required i
 verdict (`deckard-verdict/rules-conformance`) **and** any ONE of the three are present and
 passing for the exact head commit.
 
+**The chain advances on a vendor being unavailable, never on disagreement, and a
+recorded verdict from any vendor is binding.** Brandon's decision was explicit about the
+trigger: "normally, default to codex. otherwise try gemini first, if they are not
+available, test in-house" — the condition for moving down the chain is that a vendor
+could not be reached, not that it reviewed and disagreed. A vendor that returned a
+verdict was available. `docs/agent-team.md` already states the rule for what happens
+when independent reviewers disagree: "Where they disagree, the source packet decides —
+not seniority, not the model, not the implementer's explanation." A gate that let a later
+context's pass overwrite an earlier context's recorded fail would decide that
+disagreement by retry order instead — exactly what that sentence forbids. So a fail
+recorded at *any* of the three independent contexts blocks the gate outright, even when a
+different context in the chain later passes; only the absence of a verdict at a context
+(that vendor was never invoked) may be skipped over when checking whether the chain is
+satisfied.
+
 **The in-house fallback is a real weakening of the guarantee, not an equivalent option.**
 The entire stated reason a second verdict exists (`AGENTS.md`) is that a reviewer trained
 the same way as the implementer tends to reproduce the implementer's misreading —
@@ -70,9 +85,16 @@ single point of failure for every future rules PR, not just #61.
 - `tools/rules-conformance-gate.py`: `IN_HOUSE_CONTEXT` is unchanged and always required.
   `INDEPENDENT_CONTEXT` (a single string) becomes `INDEPENDENT_CONTEXTS` (a 3-tuple of
   `deckard-verdict/codex`, `deckard-verdict/gemini`, `deckard-verdict/in-house-independent`).
-  `evaluate()` requires the in-house context AND any one of `INDEPENDENT_CONTEXTS` to be
-  present with `state == "success"` and a well-formed description — an OR across the
-  tuple, not an AND.
+  `evaluate()` requires the in-house context AND at least one of `INDEPENDENT_CONTEXTS` to
+  be present with `state == "success"` and a well-formed description. This is not a plain
+  OR across the tuple: `_check_verdict()` distinguishes a context with no status recorded
+  at all (skippable) from one with a status recorded that is not a passing verdict
+  (binding), and `evaluate()` fails the gate if *any* independent context is recorded as a
+  fail, regardless of whether a different context in the chain passed. An earlier revision
+  of this PR collapsed both cases into one boolean, which let a recorded Codex fail be
+  cleared by recording Gemini as a pass afterward — caught in review before merge; the
+  test suite now covers it directly (`test_codex_fail_is_not_overridden_by_a_gemini_pass`
+  and siblings in `tools/tests/test_rules_conformance_gate.py`).
 - `tools/record-verdict.sh`: `--reviewer` accepts `rules-conformance`, `codex`, `gemini`,
   or `in-house-independent`, and rejects anything else exactly as before. The context a
   verdict posts to is still derived mechanically as `deckard-verdict/$REVIEWER`, so the

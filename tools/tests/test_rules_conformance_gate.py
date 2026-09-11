@@ -185,6 +185,51 @@ class EvaluateTests(unittest.TestCase):
         )
         self.assertFalse(result.passed)
 
+    # -------------------- a recorded fail cannot be overridden by a later pass --------
+
+    def test_codex_fail_is_not_overridden_by_a_gemini_pass(self):
+        """Regression: an earlier version of evaluate() took the first PASSING context
+        in the chain and ignored the rest, so a recorded Codex FAIL could be cleared by
+        recording Gemini as a pass afterward. The chain advances on a vendor being
+        UNREACHABLE (absent), never on disagreement -- a vendor that answered was
+        available, so its fail is binding regardless of what another context says."""
+        result = gate.evaluate(
+            RULES_FILE, ["risk:rules-conformance"],
+            [status(IN_HOUSE), status(CODEX, state="failure"), status(GEMINI)],
+        )
+        self.assertFalse(result.passed)
+        reasons = " ".join(result.reasons)
+        self.assertIn(f"'{CODEX}' verdict for this head commit is 'failure', not success", reasons)
+        self.assertIn("does not override this recorded failure", reasons)
+
+    def test_codex_absent_and_gemini_pass_still_passes(self):
+        """Absence is not failure -- this is the whole point of the fallback chain.
+        Codex never having been invoked (no status recorded at all) must not block a
+        recorded Gemini pass."""
+        result = gate.evaluate(
+            RULES_FILE, ["risk:rules-conformance"], [status(IN_HOUSE), status(GEMINI)]
+        )
+        self.assertTrue(result.passed, result.reasons)
+
+    def test_codex_pass_then_gemini_fail_still_fails(self):
+        """Order must not matter: a recorded fail blocks the gate whether it was
+        recorded before or after a passing verdict at a different context."""
+        result = gate.evaluate(
+            RULES_FILE, ["risk:rules-conformance"],
+            [status(IN_HOUSE), status(CODEX), status(GEMINI, state="failure")],
+        )
+        self.assertFalse(result.passed)
+        reasons = " ".join(result.reasons)
+        self.assertIn(f"'{GEMINI}' verdict for this head commit is 'failure', not success", reasons)
+        self.assertIn("does not override this recorded failure", reasons)
+
+    def test_all_three_independent_contexts_absent_still_fails(self):
+        """Unchanged from before this fix: no independent verdict recorded anywhere in
+        the chain blocks the gate."""
+        result = gate.evaluate(RULES_FILE, ["risk:rules-conformance"], [status(IN_HOUSE)])
+        self.assertFalse(result.passed)
+        self.assertIn("no independent verdict recorded", " ".join(result.reasons))
+
     def test_non_risk_label_does_not_require_the_independent_verdict(self):
         result = gate.evaluate(RULES_FILE, ["area:tooling"], [status(IN_HOUSE)])
         self.assertTrue(result.passed)

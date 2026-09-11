@@ -26,6 +26,20 @@ For an Issue labelled `risk:rules-conformance`, the independent verdict is produ
 3. **In-house** (a second, independent `rules-conformance` pass) — used only when
    neither Codex nor Gemini is available.
 
+**The chain advances on a vendor being unavailable, never on disagreement, and a
+recorded verdict from any vendor is binding.** "Unavailable" means Codex or Gemini could
+not be reached or returned no verdict at all — a rate limit, an outage, an account
+limit. It does not mean "Codex reviewed this and failed it." A vendor that returned a
+verdict was available, and `docs/agent-team.md` already states the rule for what happens
+next: "Where they disagree, the source packet decides — not seniority, not the model,
+not the implementer's explanation." Recording a second, differently-flagged verdict after
+a fail is not resolving a disagreement against the source packet, it is overwriting one
+verdict with another by retrying — which `tools/rules-conformance-gate.py` refuses: a
+recorded fail at any of the three independent contexts blocks the gate outright, even if
+a different context in the chain later passes. Move to the next link in the chain only
+when the previous one produced no verdict, never after it produced a fail you would
+rather not have.
+
 **This is a fallback chain, not three equivalent options, and the third link costs
 something real.** Codex and Gemini are genuinely different vendors from the in-house
 implementer; falling back to a second in-house pass is not. A reviewer from the same

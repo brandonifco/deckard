@@ -35,8 +35,16 @@ for the mechanics this label exists to flag. That independent verdict is not pin
 one vendor: it follows an ordered fallback chain -- Codex, then Gemini, then an in-house
 second pass only when neither vendor is reachable (Issue #83, ADR
 0010-independent-verdict-fallback-chain.md). Each vendor posts to its own named context,
-so INDEPENDENT_CONTEXTS below is the set of acceptable contexts, not a single string --
-the gate passes when the in-house verdict AND any ONE of them is present and passing.
+so INDEPENDENT_CONTEXTS below is the set of acceptable contexts, not a single string.
+
+The chain advances on a vendor being UNREACHABLE, not on disagreement: the gate is
+satisfied by any ONE recorded pass among INDEPENDENT_CONTEXTS, but ONLY if no context in
+the chain has a recorded fail. A vendor that returned a verdict was available, so a later
+pass elsewhere may not silently overwrite an earlier fail -- that would let a fail be
+cleared by retrying against a different vendor, deciding disagreement by retry order
+instead of the source packet (docs/agent-team.md: "Where they disagree, the source
+packet decides -- not seniority, not the model, not the implementer's explanation").
+Only the ABSENCE of a verdict at a context may be skipped over.
 """
 from __future__ import annotations
 
@@ -61,8 +69,10 @@ IN_HOUSE_CONTEXT = "deckard-verdict/rules-conformance"
 # second pass only when neither vendor is reachable. Each vendor posts to its own named
 # context rather than a shared generic one, so a reader of a merged commit's statuses can
 # tell a genuine cross-vendor verdict from a same-vendor fallback without opening a
-# transcript. This tuple is an OR, not an AND: the gate is satisfied by ANY ONE of these
-# being present and passing, on top of the always-required IN_HOUSE_CONTEXT.
+# transcript. Satisfied by ANY ONE of these being present and passing, on top of the
+# always-required IN_HOUSE_CONTEXT -- BUT a recorded fail at any context here blocks the
+# gate outright, even if another context in the chain passed. The chain advances on a
+# vendor being unreachable (absent), never on disagreement -- see evaluate().
 INDEPENDENT_CONTEXTS = (
     "deckard-verdict/codex",
     "deckard-verdict/gemini",
@@ -131,24 +141,38 @@ def independent_verdict_required(labels: list[str] | None) -> tuple[bool, list[s
     return False, []
 
 
-def _check_verdict(context: str, by_context: dict) -> tuple[bool, str]:
-    """Checks one context against the combined-status map. Returns (ok, message) --
-    the message is a success note when ok, otherwise the specific reason it failed, so
-    the same helper serves both the always-required in-house check and each attempt in
-    the independent-verdict fallback chain."""
+# The three states a checked context can be in. "absent" (no status recorded at this
+# context at all) is the only one a caller may skip over when walking the independent
+# fallback chain -- it means that vendor was simply never invoked. "fail" (a status IS
+# recorded but it is not a valid passing verdict -- wrong state, or a malformed
+# description) is a real, binding verdict: a vendor that answered was available, so its
+# answer stands. Collapsing "absent" and "fail" into one boolean (as an earlier version
+# of this function did) is exactly what let a recorded fail be overwritten by trying a
+# different vendor after it -- see evaluate().
+VERDICT_ABSENT = "absent"
+VERDICT_FAIL = "fail"
+VERDICT_PASS = "pass"
+
+
+def _check_verdict(context: str, by_context: dict) -> tuple[str, str]:
+    """Checks one context against the combined-status map. Returns (state, message) --
+    state is one of VERDICT_ABSENT / VERDICT_FAIL / VERDICT_PASS; message is a success
+    note when state is VERDICT_PASS, otherwise the specific reason it did not pass. The
+    same helper serves both the always-required in-house check and each attempt in the
+    independent-verdict fallback chain."""
     status = by_context.get(context)
     if status is None:
-        return False, f"no verdict recorded at '{context}' for this head commit"
+        return VERDICT_ABSENT, f"no verdict recorded at '{context}' for this head commit"
     state = status.get("state")
     if state != "success":
-        return False, f"'{context}' verdict for this head commit is '{state}', not success"
+        return VERDICT_FAIL, f"'{context}' verdict for this head commit is '{state}', not success"
     description = status.get("description") or ""
     if not VERDICT_RE.search(description):
-        return False, (
+        return VERDICT_FAIL, (
             f"'{context}' verdict does not name a packet bodySha256 and page range "
             f"(description: {description!r})"
         )
-    return True, f"'{context}': verified ({description})"
+    return VERDICT_PASS, f"'{context}': verified ({description})"
 
 
 def evaluate(
@@ -171,22 +195,38 @@ def evaluate(
     reasons: list[str] = list(notes)
     failures: list[str] = []
 
-    in_house_ok, in_house_msg = _check_verdict(IN_HOUSE_CONTEXT, by_context)
-    (reasons if in_house_ok else failures).append(in_house_msg)
+    in_house_state, in_house_msg = _check_verdict(IN_HOUSE_CONTEXT, by_context)
+    (reasons if in_house_state == VERDICT_PASS else failures).append(in_house_msg)
 
     if require_independent:
-        # An OR across the fallback chain, not an AND: any one passing satisfies the
-        # requirement, in whatever order the chain lists them (Codex, Gemini, in-house).
-        attempts = [_check_verdict(ctx, by_context) for ctx in INDEPENDENT_CONTEXTS]
-        passing = next((msg for ok, msg in attempts if ok), None)
-        if passing is not None:
-            reasons.append(passing)
+        # Any ONE context in the chain passing satisfies the requirement -- but a
+        # recorded fail at ANY context blocks the gate outright, even if a different
+        # context in the chain passed. Only VERDICT_ABSENT (that vendor was never
+        # invoked) may be skipped over; VERDICT_FAIL is a real, binding verdict from a
+        # vendor that WAS available, and a later pass elsewhere must not silently
+        # override it (docs/agent-team.md: "Where they disagree, the source packet
+        # decides"). Checking every context up front, rather than short-circuiting on
+        # the first pass, is what makes this order-independent: it does not matter
+        # whether the fail or the pass was recorded first, or which context is listed
+        # first in INDEPENDENT_CONTEXTS.
+        attempts = [(ctx, *_check_verdict(ctx, by_context)) for ctx in INDEPENDENT_CONTEXTS]
+        recorded_fails = [(ctx, msg) for ctx, state, msg in attempts if state == VERDICT_FAIL]
+        passing_msg = next((msg for _, state, msg in attempts if state == VERDICT_PASS), None)
+
+        if recorded_fails:
+            failures.extend(
+                f"{msg} -- a passing verdict at a different independent context does not "
+                "override this recorded failure"
+                for _, msg in recorded_fails
+            )
+        elif passing_msg is not None:
+            reasons.append(passing_msg)
         else:
             failures.append(
                 "no independent verdict recorded at any of "
                 f"{', '.join(INDEPENDENT_CONTEXTS)} for this head commit"
             )
-            failures.extend(msg for _, msg in attempts)
+            failures.extend(msg for _, _, msg in attempts)
 
     if failures:
         reasons = failures + reasons
