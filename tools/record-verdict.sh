@@ -5,6 +5,8 @@
 #     --verdict pass --packet-sha256 <bodySha256 hex> --pages 44-47
 #   tools/record-verdict.sh --sha <head-sha> --reviewer codex \
 #     --verdict fail --packet-sha256 <hex> --pages 44-47 --notes "row 9 disagrees"
+#   tools/record-verdict.sh --sha <head-sha> --reviewer in-house-independent \
+#     --verdict pass --packet-sha256 <hex> --pages 44-47 --notes "codex, gemini unreachable"
 #   tools/record-verdict.sh --sha <head-sha> --reviewer rules-conformance \
 #     --verdict pass --packet-sha256 <hex> --pages 44-47 --pr 108 --rerun-gate
 #
@@ -19,13 +21,25 @@
 # the verdict" failure mode to guard against separately, because amending produces a new
 # SHA that simply has no status of its own yet.
 #
-# `--reviewer rules-conformance` is the in-house agent's verdict; `--reviewer codex` is
-# the independent cross-vendor verdict AGENTS.md and docs/agent-team.md require on top of
-# it for an Issue labelled risk:rules-conformance. This script does not and cannot verify
-# WHICH model actually produced a verdict -- that a human or agent invoking this with
-# `--reviewer codex` actually ran Codex, not the same in-house model under a different
-# flag, is a process obligation this file records but does not enforce. Say so plainly
-# rather than implying otherwise (docs/agent-team.md, and Issue #12's standard).
+# `--reviewer rules-conformance` is the in-house agent's verdict, always required. The
+# independent verdict a risk:rules-conformance Issue also requires (AGENTS.md,
+# docs/agent-team.md) is not pinned to one vendor: it follows an ordered fallback chain --
+# `codex` first, then `gemini`, then `in-house-independent` only when neither vendor is
+# reachable (Issue #83, ADR 0010-independent-verdict-fallback-chain.md). Each reviewer
+# posts to its own context (deckard-verdict/<reviewer>), so a merged commit's statuses
+# name which vendor actually produced the second verdict rather than hiding a
+# same-vendor fallback behind a generic name. `in-house-independent` is the fallback of
+# last resort, not an equivalent option: a second reviewer from the same model family as
+# the implementer tends to reproduce the implementer's misreading, which is the entire
+# reason a cross-vendor verdict is required in the first place (AGENTS.md, ADR 0010).
+#
+# This script does not and cannot verify WHICH model actually produced a verdict, or
+# choose one on the caller's behalf: that a human or agent invoking this with `--reviewer
+# codex` actually ran Codex rather than a different reviewer, is a process obligation
+# this file records but does not enforce -- the caller decides which reviewer ran and
+# this script only validates and records that (Issue #83 non-goals: no automatic vendor
+# selection here). Say so plainly rather than implying otherwise (docs/agent-team.md, and
+# Issue #12's standard).
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -44,7 +58,7 @@ RERUN_GATE=0
 die() { printf 'error: %s\n' "$1" >&2; exit 1; }
 
 usage() {
-  sed -n '2,20p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '2,22p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
   exit "${1:-0}"
 }
 
@@ -69,10 +83,15 @@ command -v gh >/dev/null 2>&1 || die "gh is required"
 [[ -n "$SHA" ]] || die "--sha is required -- the exact head commit this verdict covers"
 [[ "$SHA" =~ ^[0-9a-fA-F]{7,40}$ ]] || die "--sha does not look like a commit SHA: $SHA"
 
+# rules-conformance is the in-house verdict, always required. codex, gemini and
+# in-house-independent are the independent verdict's ordered fallback chain (Issue #83,
+# ADR 0010-independent-verdict-fallback-chain.md) -- codex first, then gemini, then
+# in-house-independent only when neither vendor is reachable. This script does not
+# choose among them: the caller names which one actually ran.
 case "$REVIEWER" in
-  rules-conformance|codex) ;;
-  "") die "--reviewer is required: rules-conformance (in-house) or codex (independent)" ;;
-  *) die "--reviewer must be 'rules-conformance' or 'codex', got: $REVIEWER" ;;
+  rules-conformance|codex|gemini|in-house-independent) ;;
+  "") die "--reviewer is required: rules-conformance (in-house), or one of codex, gemini, in-house-independent (independent, tried in that order)" ;;
+  *) die "--reviewer must be one of rules-conformance, codex, gemini, in-house-independent, got: $REVIEWER" ;;
 esac
 CONTEXT="deckard-verdict/$REVIEWER"
 

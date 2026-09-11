@@ -9,14 +9,59 @@ everything else lives in `CLAUDE.md` and is not repeated here.
 
 ---
 
-## Codex: independent rules conformance
+## Independent rules conformance: Codex, then Gemini, then in-house
 
-Codex's value in Deckard is **cross-vendor independence**, not extra implementation
-throughput. A plausible-looking misreading of a rulebook table propagates silently
-through every system built on top of it, and a second reviewer trained the same way as
-the implementer tends to make the same misreading.
+The independent verdict's value in Deckard is **cross-vendor independence**, not extra
+implementation throughput. A plausible-looking misreading of a rulebook table propagates
+silently through every system built on top of it, and a second reviewer trained the same
+way as the implementer tends to make the same misreading — that is the specific failure
+mode asking a second vendor exists to catch.
 
-Use Codex to adversarially verify:
+For an Issue labelled `risk:rules-conformance`, the independent verdict is produced by an
+**ordered fallback chain**, decided by Brandon on Issue #83 and recorded in
+[ADR 0010](docs/decisions/0010-independent-verdict-fallback-chain.md):
+
+1. **Codex** — the default. Try it first, always.
+2. **Gemini** — used only when Codex is unavailable.
+3. **In-house** (a second, independent `rules-conformance` pass) — used only when
+   neither Codex nor Gemini is available.
+
+**The chain advances on a vendor being unavailable, never on disagreement, and a
+recorded verdict from any vendor is binding.** "Unavailable" means Codex or Gemini could
+not be reached or returned no verdict at all — a rate limit, an outage, an account
+limit. It does not mean "Codex reviewed this and failed it." A vendor that returned a
+verdict was available, and `docs/agent-team.md` already states the rule for what happens
+next: "Where they disagree, the source packet decides — not seniority, not the model,
+not the implementer's explanation." Recording a second, differently-flagged verdict after
+a fail is not resolving a disagreement against the source packet, it is overwriting one
+verdict with another by retrying — which `tools/rules-conformance-gate.py` refuses: a
+recorded fail at any of the three independent contexts blocks the gate outright, even if
+a different context in the chain later passes. Move to the next link in the chain only
+when the previous one produced no verdict, never after it produced a fail you would
+rather not have.
+
+**This is a fallback chain, not three equivalent options, and the third link costs
+something real.** Codex and Gemini are genuinely different vendors from the in-house
+implementer; falling back to a second in-house pass is not. A reviewer from the same
+model family as the implementer tends to reproduce the implementer's misreading, which
+is the entire stated reason a second verdict exists in the first place — so the in-house
+fallback measurably weakens the guarantee the independent verdict is supposed to
+provide. Brandon accepted that weakening deliberately, to avoid every rules merge being
+blocked by one vendor's rate limit or outage, and only on the condition that the trade is
+visible: see "name the vendor" below.
+
+**Name the vendor. Do not collapse the three into a generic label.** Whichever link in
+the chain actually ran, record its verdict under its own context —
+`deckard-verdict/codex`, `deckard-verdict/gemini`, or `deckard-verdict/in-house-independent`
+(`tools/record-verdict.sh --reviewer codex|gemini|in-house-independent`,
+`tools/rules-conformance-gate.py`'s `INDEPENDENT_CONTEXTS`). A reader of a merged commit's
+statuses must be able to tell a genuine cross-vendor verdict from a same-vendor fallback
+without opening a transcript. This script cannot verify which model actually produced a
+verdict, or that the chain was tried in order before falling back — that remains a
+process obligation on whoever invokes it, stated here rather than implied to be enforced
+(`docs/agent-team.md`, "Recording a verdict").
+
+Use the independent reviewer — Codex or Gemini — to adversarially verify:
 
 - dice, test resolution and Edge semantics
 - core formulas and derived attributes
@@ -24,17 +69,19 @@ Use Codex to adversarially verify:
 - damage resolution
 - transcriptions of printed tables
 
-Do not use Codex for bulk transcription, routine documentation, or as a second generic
-implementation worker.
+Do not use Codex or Gemini for bulk transcription, routine documentation, or as a second
+generic implementation worker.
 
-**Codex receives:** the bounded review packet, the raw source packet, and the Issue's
-acceptance criteria.
+**The independent reviewer receives:** the bounded review packet, the raw source packet,
+and the Issue's acceptance criteria.
 
-**Codex does not receive:** any other reviewer's conclusions, before producing its own.
-Showing a verifier the first verifier's findings destroys the independence that is the
-entire reason for asking twice.
+**The independent reviewer does not receive:** any other reviewer's conclusions, before
+producing its own. Showing a verifier the first verifier's findings destroys the
+independence that is the entire reason for asking twice — this applies to the in-house
+fallback pass too, not only to Codex or Gemini.
 
-**Codex is read-only.** A reviewer that can edit the thing it reviews is not a reviewer.
+**The independent reviewer is read-only.** A reviewer that can edit the thing it reviews
+is not a reviewer.
 
 ## Any non-Claude agent
 

@@ -42,17 +42,22 @@ applicable row, not a sample.
 Its verdict does not gate a merge until it is recorded — see "Recording a verdict" below.
 A finding reported only in a chat transcript is not visible to GitHub.
 
-### Codex — independent cross-vendor conformance
+### Independent conformance — Codex, then Gemini, then in-house
 
-See [`../AGENTS.md`](../AGENTS.md). Used where a plausible silent misreading would
+See [`../AGENTS.md`](../AGENTS.md) for the ordered fallback chain, why it is ordered that
+way, and what it costs when it reaches the in-house link, and
+[ADR 0010](decisions/0010-independent-verdict-fallback-chain.md) for the decision record
+— restating that list and its reasoning here as well would be a second copy free to
+drift the moment either one changes. Used where a plausible silent misreading would
 propagate broadly: dice and test mechanics, Edge semantics, core formulas, initiative and
 action ordering, damage resolution, high-impact table transcriptions.
 
-Codex never sees another verifier's conclusions before producing its own. Showing a
-second reviewer the first reviewer's findings destroys the independence that is the
-entire reason for asking twice.
+Whichever link in the chain runs, it never sees another verifier's conclusions before
+producing its own. Showing a second reviewer the first reviewer's findings destroys the
+independence that is the entire reason for asking twice — the in-house fallback pass
+included.
 
-For an Issue labelled `risk:rules-conformance`, Codex's verdict is mechanically
+For an Issue labelled `risk:rules-conformance`, an independent verdict is mechanically
 **required**, not merely recommended — see "Recording a verdict" below.
 
 ## Briefing agents
@@ -112,30 +117,37 @@ tools/record-verdict.sh --sha <head-sha> --reviewer rules-conformance \
   --pr <N> --rerun-gate
 ```
 
-`--reviewer` is `rules-conformance` (the in-house agent) or `codex` (the independent
-cross-vendor reviewer). Each posts a GitHub commit status tied to that exact SHA
-(`deckard-verdict/rules-conformance` or `deckard-verdict/codex`) — tied to one commit
-because that is what makes amending the PR invalidate a stale verdict: the new head SHA
-simply has no status of its own until a fresh one is recorded against it. `--rerun-gate`
-re-triggers the check so the merge gate reflects the verdict without waiting for another
-push. For an Issue labelled `risk:rules-conformance`, the gate requires **both** contexts
+`--reviewer` is `rules-conformance` (the in-house agent, always required) or one of the
+independent verdict's ordered fallback chain — `codex`, `gemini`, `in-house-independent`
+— in that order; see [`../AGENTS.md`](../AGENTS.md) and
+[ADR 0010](decisions/0010-independent-verdict-fallback-chain.md) for why it is ordered
+that way and what the in-house link costs, rather than restating that here a second
+time. Each posts a GitHub commit status tied to that exact SHA
+(`deckard-verdict/<reviewer>`) — tied to one commit because that is what makes amending
+the PR invalidate a stale verdict: the new head SHA simply has no status of its own
+until a fresh one is recorded against it. `--rerun-gate` re-triggers the check so the
+merge gate reflects the verdict without waiting for another push. For an Issue labelled
+`risk:rules-conformance`, the gate requires the in-house context **and** any ONE of the
+three independent contexts (`tools/rules-conformance-gate.py`'s `INDEPENDENT_CONTEXTS`)
 before it passes — the in-house verdict alone is not enough for the mechanics that label
-exists to flag.
+exists to flag, and the required context always names which vendor produced the second
+one.
 
 **What this does and does not prove.** The gate proves a verdict was recorded against
 this exact commit, naming a packet hash and page range. It cannot prove the verdict is
-*true* — that is `rules-conformance` and Codex's job, not a CI script's, and the
-rulebook never enters CI to check against (`CLAUDE.md`, "The book never enters the
-repository"). It also cannot prove `--reviewer codex` was actually produced by Codex
-rather than the same in-house model re-invoked under a different flag — that
-cross-vendor independence is a process obligation this file and `AGENTS.md` state, not
-one `tools/record-verdict.sh` enforces. Say so plainly rather than implying the mechanism
-covers more than it does (Issue #12's standard).
+*true* — that is `rules-conformance` and the independent reviewer's job, not a CI
+script's, and the rulebook never enters CI to check against (`CLAUDE.md`, "The book never
+enters the repository"). It also cannot prove `--reviewer codex` or `--reviewer gemini`
+was actually produced by that vendor rather than the same in-house model re-invoked under
+a different flag, or that the chain was tried in order before falling back to
+`in-house-independent` — that remains a process obligation this file, `AGENTS.md`, and
+ADR 0010 state, not one `tools/record-verdict.sh` enforces. Say so plainly rather than
+implying the mechanism covers more than it does (Issue #12's standard).
 
 Applying a rules-surface change without ever routing it through `rules-conformance` (and
-Codex, where required) is still possible in principle — nothing stops an operator from
-fabricating a verdict. What the gate removes is the *cheaper* failure: a review that
-genuinely never happened, silently indistinguishable from one that did.
+the independent chain, where required) is still possible in principle — nothing stops an
+operator from fabricating a verdict. What the gate removes is the *cheaper* failure: a
+review that genuinely never happened, silently indistinguishable from one that did.
 
 ### Making the gate actually required
 

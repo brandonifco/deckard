@@ -46,4 +46,5 @@ trail survives.
 | [0007](0007-opposed-test-tie-break-interpretation.md) | Opposed test tie-break: aggressor mapped to the acting side | Accepted |
 | [0008](0008-round-cap-scoped-to-combat-rounds.md) | Edge's bonus-gain cap applies only inside a combat round | Accepted |
 | [0009](0009-licensing-and-distribution-posture.md) | Licensing and distribution posture | Accepted |
+| [0010](0010-independent-verdict-fallback-chain.md) | Independent verdict: an ordered vendor fallback chain, not one vendor | Accepted |
 | [0011](0011-resolution-result-shape-totality-not-universality.md) | Resolution result shape: totality determines the union, not universality | Accepted |
