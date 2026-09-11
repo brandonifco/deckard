@@ -63,20 +63,17 @@ public static class D6
     /// reproducible under replay (ADR 0002) rather than merely usually reproducible.
     ///
     /// This loop terminates only if <paramref name="source"/> eventually produces a value
-    /// below <see cref="AcceptanceLimit"/>. That is an assumption this method makes about
-    /// its caller's source, not a guarantee <see cref="IRandomSource"/> states: the
-    /// interface declares only <see cref="IRandomSource.NextUInt32"/> with no distribution
-    /// contract at all, so nothing requires an implementor to honour it. The assumption
-    /// holds for any generator with a remotely uniform output -- even two consecutive
-    /// rejections have probability (4 / 2^32)^2, about 9e-19, for such a generator -- but a
-    /// source that never produces an accepted value is a broken source, not an unresolved
-    /// dice mechanic, so this deliberately imposes no retry cap: an arbitrary cap would not
-    /// make that case fail more visibly, it would misreport a broken
-    /// <see cref="IRandomSource"/> as a dice-roll failure instead. A test that scripts only
-    /// rejected values already fails visibly without one: <c>FixedSequenceRandomSource</c>
-    /// (tests/Deckard.Testing) throws <see cref="InvalidOperationException"/> on
-    /// exhaustion rather than looping, so the scripted source itself stops the test before
-    /// this method ever could hang.
+    /// below <see cref="AcceptanceLimit"/> -- exactly what <see cref="IRandomSource"/>'s
+    /// distribution contract entitles a consumer to assume. Even two consecutive
+    /// rejections have probability (4 / 2^32)^2, about 9e-19, for a source honouring that
+    /// contract, but a source that never produces an accepted value is a broken source,
+    /// not an unresolved dice mechanic, so this deliberately imposes no retry cap: an
+    /// arbitrary cap would not make that case fail more visibly, it would misreport a
+    /// broken <see cref="IRandomSource"/> as a dice-roll failure instead. A source that
+    /// cannot honour the contract is expected to fail loudly rather than loop --
+    /// <c>FixedSequenceRandomSource</c> (tests/Deckard.Testing) throws
+    /// <see cref="InvalidOperationException"/> on exhaustion, so a test that scripts only
+    /// rejected values fails visibly before this method ever could hang.
     /// </summary>
     /// <exception cref="ArgumentNullException"><paramref name="source"/> is null.</exception>
     public static int Roll(IRandomSource source)
