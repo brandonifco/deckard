@@ -1,5 +1,8 @@
 using Deckard.Rules.Resolution;
 
+using RulesKernel.Provenance;
+using RulesKernel.Resolution;
+
 namespace Deckard.Rules.Edge;
 
 /// <summary>
@@ -22,11 +25,11 @@ namespace Deckard.Rules.Edge;
 /// </summary>
 public static class SocialSituationEdgeGain
 {
-    public static UnresolvedTestResult Resolve() =>
+    public static UnresolvedResult Resolve() =>
         new(
             UnresolvedReason.MissingRulesData,
             attempted: "Edge gain from a social situation",
-            sourceLocator: "SR6 Core / Game Concepts / Edge / Gaining Edge / printed p. 45 / "
+            locator: new SourceLocator("sr6-core", "Game Concepts / Edge / Gaining Edge / printed p. 45 / "
                 + "PDF p. 46, referencing the Social Edge table on printed p. 98 (outside this "
-                + "Issue's packet)");
+                + "Issue's packet)"));
 }

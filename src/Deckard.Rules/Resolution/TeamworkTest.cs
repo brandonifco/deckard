@@ -1,3 +1,6 @@
+using RulesKernel.Provenance;
+using RulesKernel.Resolution;
+
 namespace Deckard.Rules.Resolution;
 
 /// <summary>
@@ -14,9 +17,9 @@ namespace Deckard.Rules.Resolution;
 /// </summary>
 public static class TeamworkTest
 {
-    public static UnresolvedTestResult Resolve() =>
+    public static UnresolvedResult Resolve() =>
         new(
             UnresolvedReason.UnsupportedRule,
             attempted: "Teamwork test",
-            sourceLocator: "SR6 Core / Game Concepts / Tests / Teamwork Tests / printed p. 36 / PDF p. 37");
+            locator: new SourceLocator("sr6-core", "Game Concepts / Tests / Teamwork Tests / printed p. 36 / PDF p. 37"));
 }

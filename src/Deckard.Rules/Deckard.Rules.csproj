@@ -5,6 +5,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="RulesKernel" />
     <ProjectReference Include="../Deckard.Core/Deckard.Core.csproj" />
     <ProjectReference Include="../Deckard.Data/Deckard.Data.csproj" />
   </ItemGroup>

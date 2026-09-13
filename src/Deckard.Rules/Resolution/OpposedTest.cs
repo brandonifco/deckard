@@ -1,4 +1,4 @@
-using Deckard.Core.Randomness;
+using RulesKernel.Randomness;
 
 namespace Deckard.Rules.Resolution;
 

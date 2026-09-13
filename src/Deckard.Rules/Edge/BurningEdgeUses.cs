@@ -1,5 +1,8 @@
 using Deckard.Rules.Resolution;
 
+using RulesKernel.Provenance;
+using RulesKernel.Resolution;
+
 namespace Deckard.Rules.Edge;
 
 /// <summary>
@@ -23,11 +26,11 @@ public static class Smackdown
     /// this Issue does not build (a character's skill/spellcasting capability), so this
     /// is not approximated as an unconditional automatic success.
     /// </summary>
-    public static UnresolvedTestResult Resolve() =>
+    public static UnresolvedResult Resolve() =>
         new(
             UnresolvedReason.UnsupportedRule,
             attempted: "Smackdown (a use of Burning Edge)",
-            sourceLocator: "SR6 Core / Game Concepts / Edge / Burning Edge / printed p. 48 / PDF p. 49");
+            locator: new SourceLocator("sr6-core", "Game Concepts / Edge / Burning Edge / printed p. 48 / PDF p. 49"));
 }
 
 /// <summary>
@@ -37,9 +40,9 @@ public static class Smackdown
 /// </summary>
 public static class NotDeadYet
 {
-    public static UnresolvedTestResult Resolve() =>
+    public static UnresolvedResult Resolve() =>
         new(
             UnresolvedReason.UnsupportedRule,
             attempted: "Not Dead Yet (a use of Burning Edge)",
-            sourceLocator: "SR6 Core / Game Concepts / Edge / Burning Edge / printed p. 48 / PDF p. 49");
+            locator: new SourceLocator("sr6-core", "Game Concepts / Edge / Burning Edge / printed p. 48 / PDF p. 49"));
 }

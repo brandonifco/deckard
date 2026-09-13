@@ -8,13 +8,13 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="RulesKernel.Testing" />
     <PackageReference Include="xunit" />
     <PackageReference Include="xunit.runner.visualstudio" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="../../src/Deckard.Rules/Deckard.Rules.csproj" />
-    <ProjectReference Include="../Deckard.Testing/Deckard.Testing.csproj" />
   </ItemGroup>
 
   <ItemGroup>

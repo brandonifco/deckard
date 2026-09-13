@@ -4,7 +4,7 @@ using Deckard.Data.Attributes;
 using Deckard.Data.Skills;
 using Deckard.Rules.Characters;
 using Deckard.Rules.Resolution;
-using Deckard.Testing.Randomness;
+using RulesKernel.Testing;
 
 namespace Deckard.Rules.Tests.Resolution;
 

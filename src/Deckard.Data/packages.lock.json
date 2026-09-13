@@ -3,7 +3,26 @@
   "dependencies": {
     "net10.0": {
       "deckard.core": {
-        "type": "Project"
+        "type": "Project",
+        "dependencies": {
+          "RulesKernel": "[0.1.0, )",
+          "RulesKernel.Randomness": "[0.1.0, )"
+        }
+      },
+      "RulesKernel": {
+        "type": "CentralTransitive",
+        "requested": "[0.1.0, )",
+        "resolved": "0.1.0",
+        "contentHash": "Il9MlgEE6UpS0O3j2Kd/aiXLRDVNTagvpkttUgAVajSiUx8ruTuC52AqGgEtE2GgSjlFkcJfOvhV8DhVS3tMQQ=="
+      },
+      "RulesKernel.Randomness": {
+        "type": "CentralTransitive",
+        "requested": "[0.1.0, )",
+        "resolved": "0.1.0",
+        "contentHash": "xu/z7AkSVCVNjwIPh3E92LfBiBuPSYbhHYHxcNMy1y2CmlNZ2GuUY398tJUXsKpgxaF5EBL/1vJOucqBHMQWKQ==",
+        "dependencies": {
+          "RulesKernel": "0.1.0"
+        }
       }
     }
   }
