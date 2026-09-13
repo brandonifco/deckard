@@ -18,6 +18,10 @@ concurrency:
 
 permissions:
   contents: read
+  # Required to restore the RulesKernel packages from GitHub Packages. Necessary but not
+  # sufficient on its own: the packages must also grant this repository read access, or be
+  # public. See the PR discussion for the one-time setup.
+  packages: read
 
 jobs:
   build-and-test:
