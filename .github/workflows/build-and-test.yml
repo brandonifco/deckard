@@ -66,4 +66,8 @@ jobs:
       - name: Validate
         env:
           CI: "true"
+          # nuget.config reads this to authenticate against GitHub Packages, where the
+          # RulesKernel packages live. GitHub Packages requires a token for NuGet even for
+          # public packages, so this is not an optional convenience.
+          GITHUB_PACKAGES_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: ./scripts/validate.sh full
