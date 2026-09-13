@@ -1,6 +1,8 @@
 using Deckard.Rules.Edge;
 using Deckard.Rules.Resolution;
 
+using RulesKernel.Resolution;
+
 namespace Deckard.Rules.Tests.Edge;
 
 /// <summary>
@@ -14,11 +16,11 @@ public sealed class SocialSituationEdgeGainTests
     [Fact]
     public void Resolve_returns_missing_rules_data_citing_the_social_edge_table()
     {
-        UnresolvedTestResult result = SocialSituationEdgeGain.Resolve();
+        UnresolvedResult result = SocialSituationEdgeGain.Resolve();
 
         Assert.Equal(UnresolvedReason.MissingRulesData, result.Reason);
         Assert.Equal("Edge gain from a social situation", result.Attempted);
-        Assert.Contains("Social Edge table", result.SourceLocator);
-        Assert.Contains("printed p. 98", result.SourceLocator);
+        Assert.Contains("Social Edge table", result.Locator.Citation);
+        Assert.Contains("printed p. 98", result.Locator.Citation);
     }
 }

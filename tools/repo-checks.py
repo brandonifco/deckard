@@ -133,20 +133,17 @@ ALLOWED_PROJECT_REFS: dict[str, set[str]] = {
     "Deckard.Core": set(),
     "Deckard.Data": {"Deckard.Core"},
     "Deckard.Rules": {"Deckard.Core", "Deckard.Data"},
-    # Deckard.Testing is test-support code, not a fourth engine layer: it lives under
-    # tests/, ships to nobody, and may see only Core. See amendment to ADR 0001.
-    "Deckard.Testing": {"Deckard.Core"},
 }
 
 # Where each project above actually lives. check_layering used to assume every project
-# sat under src/<name>/ -- true while the graph was exactly Core, Data, Rules. Deckard.Testing
-# lives under tests/ instead, so the directory is now looked up per project rather than
-# hard-coded.
+# sat under src/<name>/ -- true while the graph was exactly Core, Data, Rules. The lookup
+# is per project rather than hard-coded so a project under tests/ can be declared too; the
+# graph has none today, since the test-support type moved to the RulesKernel.Testing
+# package.
 PROJECT_DIRS: dict[str, str] = {
     "Deckard.Core": "src/Deckard.Core",
     "Deckard.Data": "src/Deckard.Data",
     "Deckard.Rules": "src/Deckard.Rules",
-    "Deckard.Testing": "tests/Deckard.Testing",
 }
 
 

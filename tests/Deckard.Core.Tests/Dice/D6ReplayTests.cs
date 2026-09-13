@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 using Deckard.Core.Dice;
-using Deckard.Core.Randomness;
+using RulesKernel.Randomness;
 
 namespace Deckard.Core.Tests.Dice;
 
@@ -14,7 +14,7 @@ namespace Deckard.Core.Tests.Dice;
 /// expected to hold, but "follows from two tested properties" is not "proven by test",
 /// and Phase 1's exit criterion is the latter.
 ///
-/// A scripted <see cref="Deckard.Testing.Randomness.FixedSequenceRandomSource"/> cannot
+/// A scripted <see cref="RulesKernel.Testing.FixedSequenceRandomSource"/> cannot
 /// stand in for the generator here -- it has no internal state to capture, only a
 /// position in a fixed list -- so every test in this file drives a real
 /// <see cref="Pcg32"/>.

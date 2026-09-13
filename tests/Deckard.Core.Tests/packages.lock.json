@@ -12,6 +12,15 @@
           "Microsoft.TestPlatform.TestHost": "18.10.0"
         }
       },
+      "RulesKernel.Testing": {
+        "type": "Direct",
+        "requested": "[0.1.0, )",
+        "resolved": "0.1.0",
+        "contentHash": "0Ku3R4t1WgIcQqCxjR5Yw1tMV3XyJ4Xkaf7yV5siakU9fdSxDVwxFRHKbv92fEtdE1jOtWvlpW21MiGe3KVqlA==",
+        "dependencies": {
+          "RulesKernel.Randomness": "0.1.0"
+        }
+      },
       "xunit": {
         "type": "Direct",
         "requested": "[2.9.3, )",
@@ -88,12 +97,25 @@
         }
       },
       "deckard.core": {
-        "type": "Project"
-      },
-      "deckard.testing": {
         "type": "Project",
         "dependencies": {
-          "Deckard.Core": "[1.0.0, )"
+          "RulesKernel": "[0.1.0, )",
+          "RulesKernel.Randomness": "[0.1.0, )"
+        }
+      },
+      "RulesKernel": {
+        "type": "CentralTransitive",
+        "requested": "[0.1.0, )",
+        "resolved": "0.1.0",
+        "contentHash": "mZFXhgDVF50rfvlk5ybq/314l92LvZ14SSoydYEhZh59VSI5/UmpN974zqJ3yozwA6ecx222UsJUubrURqnIRA=="
+      },
+      "RulesKernel.Randomness": {
+        "type": "CentralTransitive",
+        "requested": "[0.1.0, )",
+        "resolved": "0.1.0",
+        "contentHash": "wa1iA+cMHoyPDQhAxTrwbRxF3bg4HEFm78roRwV7hDJukvvQhWZIFCZYx1tqHCR8I+8slujjPVvLDt05vLQCDA==",
+        "dependencies": {
+          "RulesKernel": "0.1.0"
         }
       }
     }

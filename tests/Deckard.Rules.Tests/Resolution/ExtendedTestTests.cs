@@ -1,5 +1,7 @@
 using Deckard.Rules.Resolution;
 
+using RulesKernel.Resolution;
+
 namespace Deckard.Rules.Tests.Resolution;
 
 /// <summary>
@@ -13,10 +15,10 @@ public sealed class ExtendedTestTests
     [Fact]
     public void Resolve_is_explicitly_unresolved_as_an_unsupported_rule()
     {
-        UnresolvedTestResult result = ExtendedTest.Resolve();
+        UnresolvedResult result = ExtendedTest.Resolve();
 
         Assert.Equal(UnresolvedReason.UnsupportedRule, result.Reason);
         Assert.Equal("Extended test", result.Attempted);
-        Assert.Contains("printed p. 36", result.SourceLocator);
+        Assert.Contains("printed p. 36", result.Locator.Citation);
     }
 }

@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using Deckard.Core.Dice;
-using Deckard.Core.Randomness;
-using Deckard.Testing.Randomness;
+using RulesKernel.Randomness;
+using RulesKernel.Testing;
 
 namespace Deckard.Core.Tests.Dice;
 

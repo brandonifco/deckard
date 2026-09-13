@@ -1,107 +1,61 @@
 using System.Collections.Generic;
-using Deckard.Core.Randomness;
+using RulesKernel.Randomness;
 
 namespace Deckard.Core.Dice;
 
 /// <summary>
-/// Uniform six-sided die generation over an injected <see cref="IRandomSource"/>, by
-/// rejection sampling rather than modulo. This is the "dice roller" and "dice pool"
-/// layers from docs/architecture.md's randomness-layering diagram: turning a raw
-/// <c>uint32</c> stream into faces, and preserving the order of several draws. It carries
-/// no SR6 semantics -- no hits, glitches, thresholds, Edge, or pool sizing by attribute
-/// or skill. Those are later layers.
+/// Six-sided dice over an injected <see cref="IRandomSource"/>.
 ///
-/// <see cref="uint.MaxValue"/> plus one (2^32) is not itself a multiple of six --
-/// 2^32 = 4,294,967,296 = 6 x 715,827,882 + 4 -- so a plain <c>value % 6</c> mapping is
-/// not exactly uniform: four of the six faces would receive 715,827,883 outcomes and two
-/// would receive 715,827,882, a difference of about 2.33e-10 absolute (see ADR 0002,
-/// docs/decisions/0002-deterministic-randomness.md). That is far too small to distort any
-/// dice pool this engine will ever roll -- ADR 0002 said otherwise when this Issue was
-/// filed and was corrected. Rejection sampling is used anyway, on the stronger ground that
-/// actually holds: it is exactly uniform rather than uniform up to a provably tiny
-/// discrepancy, it costs almost nothing, and a mapping that is provably exact needs no
-/// argument about whether its error is small enough to tolerate.
+/// <para>
+/// This type used to own its rejection-sampling logic. It no longer does: that logic is
+/// exactly uniform bounded drawing, which is not a Shadowrun concern and not even a
+/// tabletop one, so it moved to <see cref="UniformInt"/> in the kernel where every engine
+/// can share one verified copy. What remains here is the part that genuinely is tabletop
+/// vocabulary -- the word "die", the 1-6 face convention, and rolling several in order.
+/// </para>
 ///
-/// A rolled face, and even a whole rolled sequence, says nothing about how to reproduce it
-/// on its own: replaying a roll needs the same <see cref="IRandomSource"/> sequence *and*
-/// a matching <see cref="Deckard.Core.Replay.ReplayCompatibilityIdentity"/> (ADR 0005,
-/// docs/decisions/0005-replay-compatibility-identity.md) -- a seed alone is not the
-/// contract.
+/// <para>
+/// The kernel deliberately refuses to name this concept: an engine over a statute draws
+/// nothing, and a kernel that shipped a <c>D6</c> would have declared what kind of rules it
+/// is for. So this is the boundary in miniature. When a shared tabletop pack exists, this
+/// type is what moves into it; until then it lives here, thin enough that moving it is a
+/// rename.
+/// </para>
+///
+/// <para>
+/// It carries no SR6 semantics -- no hits, glitches, thresholds, Edge, or pool sizing by
+/// attribute or skill. Those are later layers.
+/// </para>
+///
+/// <para>
+/// A rolled face says nothing about how to reproduce it on its own: replaying a roll needs
+/// the same <see cref="IRandomSource"/> sequence <em>and</em> a matching
+/// <see cref="RulesKernel.Identity.ReplayCompatibilityIdentity"/> (ADR 0005) -- a seed
+/// alone is not the contract.
+/// </para>
 /// </summary>
 public static class D6
 {
     private const uint Faces = 6;
 
     /// <summary>
-    /// The number of raw <c>uint32</c> values, out of 2^32, that map onto each face when
-    /// draws below this limit are accepted: the largest multiple of <see cref="Faces"/>
-    /// that fits in a <c>uint32</c>.
+    /// Rolls one six-sided die, returning a face from 1 to 6.
     ///
-    /// 2^32 does not itself fit in a <c>uint</c>, so this is written as
-    /// <c>uint.MaxValue - (uint.MaxValue % Faces)</c> (4,294,967,295 - 3 =
-    /// 4,294,967,292) rather than against 2^32 directly. Both land on the same value:
-    /// 2^32 is not itself a multiple of 6, so the largest multiple of 6 not exceeding
-    /// <c>uint.MaxValue</c> (2^32 - 1) is the same as the largest multiple of 6 below
-    /// 2^32. Raw draws at or above this limit -- the four values 4,294,967,292 through
-    /// <see cref="uint.MaxValue"/> -- are rejected and redrawn; this is the whole risk
-    /// this type exists to get right, because an off-by-one here (using <c>&gt;</c>
-    /// instead of <c>&gt;=</c>, or subtracting <see cref="Faces"/> itself instead of the
-    /// remainder) reintroduces exactly the bias rejection sampling exists to remove, while
-    /// looking correct in every ordinary test run.
-    /// </summary>
-    private const uint AcceptanceLimit = uint.MaxValue - (uint.MaxValue % Faces);
-
-    /// <summary>
-    /// Rolls one six-sided die: draws from <paramref name="source"/> until it produces a
-    /// value below <see cref="AcceptanceLimit"/>, then maps that value onto a face 1-6.
-    ///
-    /// A single call almost always consumes exactly one draw. It consumes more only when
-    /// a rejected raw value is drawn -- a 4-in-4,294,967,296 chance per draw -- in which
-    /// case it draws again and again until an accepted value appears. The exact number of
-    /// draws a call makes is therefore not fixed at one; it is determined entirely by
-    /// <paramref name="source"/>'s own sequence, which is what keeps it exactly
-    /// reproducible under replay (ADR 0002) rather than merely usually reproducible.
-    ///
-    /// This loop terminates only if <paramref name="source"/> eventually produces a value
-    /// below <see cref="AcceptanceLimit"/> -- exactly what <see cref="IRandomSource"/>'s
-    /// distribution contract entitles a consumer to assume. Even two consecutive
-    /// rejections have probability (4 / 2^32)^2, about 9e-19, for a source honouring that
-    /// contract, but a source that never produces an accepted value is a broken source,
-    /// not an unresolved dice mechanic, so this deliberately imposes no retry cap: an
-    /// arbitrary cap would not make that case fail more visibly, it would misreport a
-    /// broken <see cref="IRandomSource"/> as a dice-roll failure instead. A source that
-    /// cannot honour the contract is expected to fail loudly rather than loop --
-    /// <c>FixedSequenceRandomSource</c> (tests/Deckard.Testing) throws
-    /// <see cref="InvalidOperationException"/> on exhaustion, so a test that scripts only
-    /// rejected values fails visibly before this method ever could hang.
+    /// <para>
+    /// A call almost always consumes exactly one draw from <paramref name="source"/>, and
+    /// more only when <see cref="UniformInt"/> rejects a raw value and redraws. The exact
+    /// count is determined by the source's own sequence, which is what keeps it exactly
+    /// reproducible under replay rather than merely usually reproducible.
+    /// </para>
     /// </summary>
     /// <exception cref="ArgumentNullException"><paramref name="source"/> is null.</exception>
-    public static int Roll(IRandomSource source)
-    {
-        ArgumentNullException.ThrowIfNull(source);
-
-        uint raw;
-        do
-        {
-            raw = source.NextUInt32();
-        }
-        while (raw >= AcceptanceLimit);
-
-        return (int)(raw % Faces) + 1;
-    }
+    public static int Roll(IRandomSource source) => (int)UniformInt.Below(source, Faces) + 1;
 
     /// <summary>
-    /// Rolls <paramref name="count"/> six-sided dice in order, returning each face in the
-    /// order it was drawn. The result is an <see cref="IReadOnlyList{T}"/> ordered by
-    /// construction -- the sequence dice were actually rolled in, not a sort applied
-    /// afterward -- per ADR 0006 (docs/decisions/0006-deterministic-ordering-conventions.md),
-    /// which governs every observable ordered result this engine produces, including this
-    /// one, the first to exist.
-    ///
-    /// Total draw count is deterministic given <paramref name="source"/>'s sequence, but it
-    /// is not simply <paramref name="count"/>: each die independently draws as many raw
-    /// values as <see cref="Roll(IRandomSource)"/> needs, including any rejected-and-redrawn
-    /// values, before the next die's draws begin.
+    /// Rolls <paramref name="count"/> six-sided dice, returning each face in the order it
+    /// was drawn. The result is ordered by construction -- the sequence dice were actually
+    /// rolled in, not a sort applied afterward -- per ADR 0006, which governs every
+    /// observable ordered result this engine produces.
     /// </summary>
     /// <exception cref="ArgumentNullException"><paramref name="source"/> is null.</exception>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="count"/> is negative.</exception>

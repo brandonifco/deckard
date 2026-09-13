@@ -177,11 +177,6 @@ class LayeringTests(CheckTestCase):
         self._all_projects(**{"Deckard.Rules": ["Deckard.Core", "Deckard.Data", "Deckard.Testing"]})
         self.assertCaught(repo_checks.check_layering(self.repo.root), "Deckard.Rules declares forbidden")
 
-    def test_testing_project_referencing_anything_but_core_is_caught(self):
-        """Deckard.Testing may see Core and nothing else -- not Data, not Rules."""
-        self._all_projects(**{"Deckard.Testing": ["Deckard.Core", "Deckard.Data"]})
-        self.assertCaught(repo_checks.check_layering(self.repo.root), "Deckard.Testing declares forbidden")
-
 
 class CoreFilesystemBoundaryTests(CheckTestCase):
     """See ADR 0005 / Issue #38: Deckard.Core may not touch the filesystem (ADR 0001)."""
