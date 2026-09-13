@@ -18,10 +18,6 @@ concurrency:
 
 permissions:
   contents: read
-  # Required to restore the RulesKernel packages from GitHub Packages. Necessary but not
-  # sufficient on its own: the packages must also grant this repository read access, or be
-  # public. See the PR discussion for the one-time setup.
-  packages: read
 
 jobs:
   build-and-test:
@@ -70,8 +66,4 @@ jobs:
       - name: Validate
         env:
           CI: "true"
-          # nuget.config reads this to authenticate against GitHub Packages, where the
-          # RulesKernel packages live. GitHub Packages requires a token for NuGet even for
-          # public packages, so this is not an optional convenience.
-          GITHUB_PACKAGES_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: ./scripts/validate.sh full
